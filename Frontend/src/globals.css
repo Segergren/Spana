@@ -1,0 +1,218 @@
+@import 'tailwindcss';
+@plugin "daisyui" {
+  themes: false;
+  exclude: scrollbar;
+}
+
+@plugin "daisyui/theme" {
+  name: 'spana';
+  default: true;
+  color-scheme: dark;
+  --color-primary: #14a896;
+  --color-primary-content: #ffffff;
+  --color-secondary: #8a97a8;
+  --color-secondary-content: #0e1114;
+  --color-accent: #f2a53a;
+  --color-accent-content: #0e1114;
+  --color-neutral: #232a33;
+  --color-neutral-content: #e6ebf0;
+  --color-base-100: #1b2027;
+  --color-base-200: #15191e;
+  --color-base-300: #0e1114;
+  --color-base-content: #e6ebf0;
+  --color-info: #4ea1e6;
+  --color-success: #3bb273;
+  --color-warning: #f2a53a;
+  --color-error: #e5484d;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
+  --radius-selector: 0.375rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.3rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: Roboto, ui-sans-serif, system-ui, sans-serif;
+  --color-surface: rgb(255 255 255 / 0.05);
+  --color-surface-hover: rgb(255 255 255 / 0.09);
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-muted: rgb(230 235 240 / 0.58);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  cursor: default;
+  user-select: none;
+  background: var(--color-base-300);
+}
+
+/* Everything clickable shows the hand cursor; text fields keep their caret. */
+button:not(:disabled),
+a,
+[role='button'],
+summary,
+select,
+label:has(> input[type='checkbox']),
+input[type='checkbox'],
+input[type='range'],
+.dropdown > [tabindex] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.12);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 0.22);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@layer components {
+  .panel {
+    background: var(--color-base-100);
+    border: 1px solid var(--color-line);
+  }
+  .poster-focus {
+    transition: outline-color 0.15s ease;
+    outline: 3px solid transparent;
+    outline-offset: 2px;
+  }
+  .group:hover .poster-focus,
+  .poster-focus:focus-visible {
+    outline-color: var(--color-primary);
+  }
+}
+
+/* Form controls get solid fills so they read on any card. Unlayered so DaisyUI's defaults do not win. */
+.select,
+.input {
+  background-color: var(--color-neutral);
+  border-color: rgb(255 255 255 / 0.1);
+  box-shadow: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.select:hover,
+.input:hover {
+  border-color: rgb(255 255 255 / 0.2);
+}
+.select:focus,
+.select:focus-within,
+.select:open,
+.input:focus,
+.input:focus-within {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.select::picker(select) {
+  background: var(--color-neutral);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 0.875rem;
+  padding: 0.3rem;
+  margin-block: 0.35rem;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  backdrop-filter: none;
+}
+.select option {
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.8rem;
+  background: transparent;
+}
+.select option:hover,
+.select option:focus-visible {
+  background: rgb(255 255 255 / 0.08);
+}
+.select option:checked {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Plain buttons: a visible fill instead of blending into the card. */
+.btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-primary, .btn-secondary, .btn-accent, .btn-neutral, .btn-info, .btn-success, .btn-warning, .btn-error) {
+  background-color: rgb(255 255 255 / 0.09);
+  border-color: transparent;
+  box-shadow: none;
+}
+.btn:not(.btn-ghost, .btn-link, .btn-outline, .btn-primary, .btn-secondary, .btn-accent, .btn-neutral, .btn-info, .btn-success, .btn-warning, .btn-error):hover {
+  background-color: rgb(255 255 255 / 0.15);
+}
+
+
+
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--color-primary) var(--pct, 0%),
+    rgb(255 255 255 / 0.25) var(--pct, 0%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  transition: transform 0.12s;
+}
+.range-thin:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+/* Centres a capital letter optically inside a badge: the line box is trimmed to the cap height. */
+.cap-center {
+  line-height: 1;
+  text-box: trim-both cap alphabetic;
+}
+
+/* The spana wordmark: Manrope ExtraBold, set tight. */
+.font-brand {
+  font-family: Manrope, Roboto, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.055em;
+}
+
+.fade-bottom {
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}

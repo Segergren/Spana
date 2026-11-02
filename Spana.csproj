@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Spana</AssemblyName>
+    <RootNamespace>Spana</RootNamespace>
+    <Product>Spana</Product>
+    <Version>0.1.0</Version>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.13" />
+    <PackageReference Include="PhotinoX" Version="5.3.5" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.2" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
+  </ItemGroup>
+
+  <!-- The app only runs as x64, so the x86 and ARM64 copies of VLC are left out. -->
+  <PropertyGroup>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+
+  <!-- App icon: embedded in the exe and copied next to it for the window and taskbar. -->
+  <PropertyGroup>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="icon.ico;icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrontendSourceFiles Include="Frontend\src\**\*;Frontend\public\**\*;Frontend\index.html;Frontend\package.json;Frontend\package-lock.json;Frontend\vite.config.*;Frontend\tsconfig*.json" />
+    <None Remove="Frontend\**" />
+    <Compile Remove="Frontend\**" />
+  </ItemGroup>
+
+  <Target Name="BuildFrontendAssets" BeforeTargets="BeforeBuild" Inputs="@(FrontendSourceFiles)" Outputs="Resources\wwwroot\index.html">
+    <Exec WorkingDirectory="Frontend" Command="npm ci" Condition="!Exists('Frontend\node_modules')" />
+    <Exec WorkingDirectory="Frontend" Command="npm run build" />
+    <ItemGroup>
+      <OldFrontendFiles Include="Resources\wwwroot\**\*" Exclude="Resources\wwwroot\.gitkeep" />
+      <FrontendDistFiles Include="Frontend\dist\**\*" />
+    </ItemGroup>
+    <Delete Files="@(OldFrontendFiles)" />
+    <Copy SourceFiles="@(FrontendDistFiles)" DestinationFiles="@(FrontendDistFiles->'Resources\wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="IncludeFrontendAssets" BeforeTargets="_CalculateEmbeddedFilesManifestInputs" DependsOnTargets="BuildFrontendAssets">
+    <ItemGroup>
+      <EmbeddedResource Include="Resources\wwwroot\**\*" Exclude="Resources\wwwroot\.gitkeep" />
+    </ItemGroup>
+  </Target>
+
+</Project>

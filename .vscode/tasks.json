@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/Spana.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "vite",
+      "type": "npm",
+      "script": "dev",
+      "path": "Frontend",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          
+          "beginsPattern": "VITE",
+          "endsPattern": "Local:.*localhost"
+        }
+      }
+    },
+    {
+      "label": "build and start vite",
+      "dependsOn": ["build", "vite"]
+    }
+  ]
+}

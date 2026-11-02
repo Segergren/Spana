@@ -1,0 +1,105 @@
+name: Create Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Type of release increment (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  prerelease:
+    runs-on: windows-2025-vs2026
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine Version
+        shell: pwsh
+        run: |
+          $newVersion = ./.github/scripts/next-prerelease-version.ps1 -ReleaseType '${{ github.event.inputs.release_type }}'
+          "new_version=$newVersion" >> $env:GITHUB_ENV
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      # The project builds the frontend and embeds it as part of the publish.
+      - name: Publish
+        run: dotnet publish Spana.csproj -c Release -r win-x64 --self-contained -o publish -p:Version=${{ env.new_version }}
+
+      - name: Package with vpk
+        run: vpk pack -u Spana -v ${{ env.new_version }} -p ./publish -e Spana.exe -o ./output --packTitle "Spana" --noPortable -i ./icon.ico -r win-x64
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Spana-Installer
+          path: ./output/Spana-win-Setup.exe
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Create a Git Tag
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag v${{ env.new_version }}
+          git push origin v${{ env.new_version }}
+
+      - name: Create GitHub Release (Pre-Release)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.new_version }}
+          name: "Release v${{ env.new_version }}"
+          prerelease: true
+          generate_release_notes: false
+          files: |
+            ./output/Spana-win-Setup.exe
+            ./output/RELEASES
+            ./output/releases.win.json
+            ./output/assets.win.json
+            ./output/Spana-${{ env.new_version }}-full.nupkg
+
+  virustotal:
+    needs: prerelease
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: Download Installer
+        uses: actions/download-artifact@v8
+        with:
+          name: Spana-Installer
+
+      - name: Upload installer to VirusTotal
+        shell: bash
+        env:
+          VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VT_API_KEY:-}" ]; then
+            echo "::warning::VIRUSTOTAL_API_KEY secret not set; skipping VirusTotal upload"
+            exit 0
+          fi
+          FILE=./Spana-win-Setup.exe
+          # /files caps at 32MB; larger files need a one-time upload URL.
+          UPLOAD_URL=https://www.virustotal.com/api/v3/files
+          if [ "$(stat -c %s "$FILE")" -gt 33554432 ]; then
+            UPLOAD_URL=$(curl -sS --fail -H "x-apikey: $VT_API_KEY" https://www.virustotal.com/api/v3/files/upload_url | jq -r '.data')
+          fi
+          echo "Uploading $FILE to VirusTotal..."
+          ANALYSIS_ID=$(curl -sS --fail -H "x-apikey: $VT_API_KEY" -F "file=@${FILE}" "$UPLOAD_URL" | jq -r '.data.id')
+          REPORT_URL="https://www.virustotal.com/gui/file-analysis/$ANALYSIS_ID"
+          echo "Spana-win-Setup.exe: $REPORT_URL"
+          echo "VirusTotal: $REPORT_URL" >> "$GITHUB_STEP_SUMMARY"

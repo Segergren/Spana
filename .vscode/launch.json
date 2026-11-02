@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Spana",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/Spana.exe",
+      "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart",
+      "stopAtEntry": false,
+      "logging": { "moduleLoad": false },
+      "env": { "SPANA_DEVTOOLS": "1" }
+    },
+    {
+      "name": "Spana (Vite hot reload)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build and start vite",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/Spana.exe",
+      "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart",
+      "stopAtEntry": false,
+      "logging": { "moduleLoad": false },
+      "env": { "SPANA_DEVTOOLS": "1", "SPANA_DEV_URL": "http://localhost:2883" }
+    }
+  ]
+}
