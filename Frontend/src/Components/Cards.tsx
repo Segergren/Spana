@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Heart, Play, Star, Tv } from 'lucide-react';
 import { img } from '../lib/api';
 
@@ -21,6 +21,7 @@ export function Art({
   fit = 'cover',
   onFail,
   frame,
+  width,
 }: {
   src?: string;
   altSrc?: string;
@@ -33,12 +34,14 @@ export function Art({
   fallback?: ReactNode;
   /** Wraps the image; nothing at all, wrapper included, is rendered without a working image. */
   frame?: (img: ReactNode) => ReactNode;
+  /** Displayed width in CSS pixels, so a scaled-down copy is fetched. */
+  width?: number;
 }) {
   // Remember which URLs failed rather than how many, so a source that arrives later (a fresh logo link) is still tried.
   const [failed, setFailed] = useState<string[]>([]);
   const sources = [src, altSrc].filter((s, i, all) => s && all.indexOf(s) === i) as string[];
   const current = sources.find((s) => !failed.includes(s));
-  const url = img(current);
+  const url = img(current, width);
   // Nothing at all when there is no working image; the card keeps its shape and background.
   if (!url) return frame ? null : <div className={className} />;
   const image = (
@@ -81,7 +84,7 @@ export function PosterCard({
   return (
     <button onClick={onClick} className={`group flex shrink-0 flex-col gap-2 text-left ${width}`}>
       <div className="poster-focus relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-white/5">
-        <Art src={poster} alt={title} className="h-full w-full" />
+        <Art src={poster} alt={title} width={240} className="h-full w-full" />
         <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/90">
             <Play size={22} fill="white" className="ml-0.5 text-white" />
@@ -142,6 +145,8 @@ export function ChannelCard({
   );
 }
 
+const ROW_BATCH = 8;
+
 export function Row({
   title,
   onSeeAll,
@@ -152,10 +157,27 @@ export function Row({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const end = useRef<HTMLDivElement>(null);
+  const items = Children.toArray(children);
+  // Only the cards near the visible part of the row are mounted; more follow as it scrolls.
+  const [count, setCount] = useState(ROW_BATCH);
+  const shown = Math.min(count, items.length);
+
+  useEffect(() => {
+    const el = end.current;
+    if (!el || shown >= items.length) return;
+    const io = new IntersectionObserver(
+      (entries) => entries[0].isIntersecting && setCount((n) => n + ROW_BATCH),
+      { root: ref.current, rootMargin: '0px 1200px 0px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown, items.length]);
+
   const scroll = (dir: number) =>
     ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.8, behavior: 'smooth' });
   return (
-    <section className="group/row relative">
+    <section className="group/row relative [contain-intrinsic-size:auto_320px] [content-visibility:auto]">
       <div className="mb-3 flex items-end justify-between px-8">
         <h2 className="text-xl font-semibold text-white">{title}</h2>
         {onSeeAll && (
@@ -165,7 +187,8 @@ export function Row({
         )}
       </div>
       <div ref={ref} className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-8 pb-2 pt-1">
-        {children}
+        {items.slice(0, shown)}
+        {shown < items.length && <div ref={end} className="w-px shrink-0" />}
       </div>
       <button
         onClick={() => scroll(-1)}

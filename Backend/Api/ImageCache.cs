@@ -1,4 +1,8 @@
 using System.Collections.Concurrent;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using Serilog;
@@ -40,6 +44,90 @@ public static class ImageCache
         {
             InFlight.TryRemove(hash, out _);
         }
+    }
+
+    private static readonly int[] Widths = [128, 320, 480, 640, 960];
+    private static readonly SemaphoreSlim ResizeGate = new(Math.Max(2, Environment.ProcessorCount / 2));
+    private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> Resizing = new();
+    private static readonly ConcurrentDictionary<string, byte> NoResize = new();
+
+    // A copy scaled down to the width it is shown at, so a 2000 px match still is not decoded for a 320 px card.
+    public static async Task<(string? path, string contentType)> GetAsync(string url, int width)
+    {
+        var (path, type) = await GetAsync(url);
+        if (path == null || width <= 0 || !OperatingSystem.IsWindows() || type == "image/svg+xml" || NoResize.ContainsKey(path))
+            return (path, type);
+        int w = Widths.FirstOrDefault(x => x >= width, Widths[^1]);
+        string thumb = $"{path}.w{w}";
+        if (File.Exists(thumb) && File.GetLastWriteTimeUtc(thumb) >= File.GetLastWriteTimeUtc(path))
+            return (thumb, Sniff(thumb));
+
+        var task = Resizing.GetOrAdd(thumb, _ => new Lazy<Task<string?>>(() => ResizeAsync(path, thumb, w)));
+        try
+        {
+            var result = await task.Value;
+            if (result == null) NoResize[path] = 0;
+            return result != null ? (result, Sniff(result)) : (path, type);
+        }
+        finally
+        {
+            Resizing.TryRemove(thumb, out _);
+        }
+    }
+
+    private static async Task<string?> ResizeAsync(string source, string target, int width)
+    {
+        await ResizeGate.WaitAsync();
+        try
+        {
+            return await Task.Run(() => OperatingSystem.IsWindows() ? Resize(source, target, width) : null);
+        }
+        catch (Exception ex)
+        {
+            // GDI+ cannot read WebP and a few odd files; those are served as they are.
+            Log.Debug("Image resize skipped {Path}: {Message}", source, ex.Message);
+            return null;
+        }
+        finally
+        {
+            ResizeGate.Release();
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? Resize(string source, string target, int width)
+    {
+        using var src = Image.FromFile(source);
+        // Small enough already; serving the original avoids a needless copy.
+        if (src.Width <= width * 1.25) return null;
+        int height = Math.Max(1, (int)Math.Round(src.Height * (double)width / src.Width));
+        bool alpha = Image.IsAlphaPixelFormat(src.PixelFormat);
+        using var bmp = new Bitmap(width, height, alpha
+            ? PixelFormat.Format32bppArgb
+            : PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.CompositingQuality = CompositingQuality.HighQuality;
+            using var attrs = new ImageAttributes();
+            attrs.SetWrapMode(WrapMode.TileFlipXY);
+            g.DrawImage(src, new Rectangle(0, 0, width, height), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, attrs);
+        }
+        string tmp = target + ".tmp";
+        if (alpha)
+        {
+            bmp.Save(tmp, ImageFormat.Png);
+        }
+        else
+        {
+            var codec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+            using var p = new EncoderParameters(1);
+            p.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
+            bmp.Save(tmp, codec, p);
+        }
+        File.Move(tmp, target, true);
+        return target;
     }
 
     private static async Task<string?> DownloadAsync(string url, string path, string hash)

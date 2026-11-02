@@ -435,11 +435,13 @@ export const player = {
   fullscreen: (enabled: boolean) => api.player('fullscreen', { enabled }),
 };
 
-export function img(url?: string | null): string | undefined {
+/** `width` is the displayed CSS width; the backend sends a copy scaled down to it. */
+export function img(url?: string | null, width?: number): string | undefined {
   if (!url || !/^https?:\/\//.test(url)) return undefined;
+  const w = width ? `&w=${Math.ceil(width * (window.devicePixelRatio || 1))}` : '';
   return imageKey
-    ? `${apiBase}/img?k=${imageKey}&u=${encodeURIComponent(url)}`
-    : `${apiBase}/img?t=${token}&u=${encodeURIComponent(url)}`;
+    ? `${apiBase}/img?k=${imageKey}&u=${encodeURIComponent(url)}${w}`
+    : `${apiBase}/img?t=${token}&u=${encodeURIComponent(url)}${w}`;
 }
 
 export function formatTime(ms: number): string {
@@ -452,8 +454,10 @@ export function formatTime(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
+const clockFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
+
 export function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return clockFormat.format(ms);
 }
 
 export function normalize(s: string): string {

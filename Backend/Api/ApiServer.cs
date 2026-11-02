@@ -193,7 +193,8 @@ public static class ApiServer
             res.StatusCode = 400;
             return;
         }
-        var (file, type) = await ImageCache.GetAsync(url);
+        int.TryParse(req.QueryString["w"], out int width);
+        var (file, type) = await ImageCache.GetAsync(url, width);
         if (file == null)
         {
             res.StatusCode = 404;

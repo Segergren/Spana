@@ -35,7 +35,7 @@ function cleanTitle(title: string) {
 }
 
 function Logo({ src, size = 'h-5 w-5' }: { src?: string; size?: string }) {
-  const url = img(src);
+  const url = img(src, 64);
   if (!url) return <span className={`${size} shrink-0`} />;
   return <SafeImg src={url} className={`${size} shrink-0 object-contain`} />;
 }
@@ -111,6 +111,7 @@ export default function ProgramCard({
         {image ? (
           <Art
             src={image}
+            width={320}
             onFail={() => setBroken(image)}
             className="h-full w-full transition-transform duration-300 group-hover:scale-[1.02]"
           />
@@ -135,6 +136,7 @@ export default function ProgramCard({
           <Art
             src={logoOf(channel)}
             altSrc={channel.icon}
+            width={28}
             fit="contain"
             className="h-full w-full"
             frame={(img) => <span className="flex h-5 w-7 shrink-0 items-center justify-center">{img}</span>}

@@ -40,7 +40,7 @@ export default function PlayerPage() {
       <VideoSlot mode="full" className="absolute inset-0" />
       {state.status === 'ended' && next && (
         <div className="absolute bottom-28 right-8 z-40 flex w-96 gap-4 rounded-2xl bg-black/80 p-4 ring-1 ring-white/10">
-          <Art src={next.image} className="aspect-video w-32 shrink-0 rounded-lg" />
+          <Art src={next.image} width={128} className="aspect-video w-32 shrink-0 rounded-lg" />
           <div className="min-w-0 flex-1">
             <div className="text-xs uppercase tracking-wide text-white/50">Up next</div>
             <div className="line-clamp-2 text-sm font-medium">

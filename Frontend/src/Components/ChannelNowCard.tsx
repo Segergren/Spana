@@ -54,12 +54,14 @@ export default function ChannelNowCard({
           <>
             <Art
               src={image}
+              width={360}
               onFail={() => setBroken(image)}
               className="h-full w-full transition-transform duration-300 group-hover:scale-[1.02]"
             />
             <Art
               src={logo}
               altSrc={logoAlt}
+              width={112}
               fit="contain"
               className="h-auto max-h-16 w-full object-[right_top] drop-shadow-[0_1px_2.5px_rgba(0,0,0,0.6)]"
               frame={(img) => <div className="absolute right-3.5 top-3.5 w-28">{img}</div>}
@@ -67,7 +69,7 @@ export default function ChannelNowCard({
           </>
         ) : (
           <div className={`flex h-full items-center justify-center ${smallLogo ? 'px-16 py-12' : 'p-8'}`}>
-            <Art src={logo} altSrc={logoAlt} fit="contain" className="h-full w-full" />
+            <Art src={logo} altSrc={logoAlt} width={smallLogo ? 240 : 200} fit="contain" className="h-full w-full" />
           </div>
         )}
         {pct > 0 && (

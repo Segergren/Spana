@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Loader2, Search, Tv } from 'lucide-react';
 import { type CatalogItem } from '../lib/api';
 import { useCatalog, useGuideNow, useLibrary, useNav } from '../Context/AppContext';
-import { GENRES, genreMatcher } from '../lib/genres';
+import { GENRES, genreCounts, genreMatcher } from '../lib/genres';
 import { Empty, logoOf } from '../Components/Cards';
 import ChannelNowCard from '../Components/ChannelNowCard';
 import { playLive } from '../lib/stores';
@@ -144,10 +144,21 @@ function displayNames(list: CatalogItem[], alternatives: boolean, home?: string)
   };
 }
 
+// Revisiting the TV page reuses the deduplicated lists instead of folding every channel name again.
+const listCache = new WeakMap<CatalogItem[], Map<string, CatalogItem[]>>();
+const headingCache = new WeakMap<CatalogItem[], (i: CatalogItem) => boolean>();
+const labelCache = new WeakMap<CatalogItem[], (c: CatalogItem) => string>();
+
 const SEPARATOR = /^\s*[#=\-*~•★_]{3,}/;
 
 // Providers put heading rows like "SWEDEN" or "------ DE: MUSIK ------" between channels.
 function headingFilter(items: CatalogItem[]) {
+  let f = headingCache.get(items);
+  if (!f) headingCache.set(items, (f = buildHeadingFilter(items)));
+  return f;
+}
+
+function buildHeadingFilter(items: CatalogItem[]) {
   const stats = new Map<string, { all: number; guide: number }>();
   for (const i of items) {
     const s = stats.get(i.categoryId ?? '') ?? { all: 0, guide: 0 };
@@ -205,12 +216,17 @@ export default function Live({ categoryId }: { categoryId?: string }) {
   const byId = useMemo(() => new Map(data?.items.map((i) => [i.id, i]) ?? []), [data]);
   const matcher = useMemo(() => genreMatcher(data?.categories ?? []), [data]);
   const isChannel = useMemo(() => headingFilter(data?.items ?? []), [data]);
-  const genres = useMemo(
-    () => GENRES.filter((g) => (data?.items ?? []).some((i) => matcher(g, i))),
-    [data, matcher],
-  );
+  const genres = useMemo(() => {
+    if (!data) return [];
+    const counts = genreCounts(data.categories, data.items);
+    return GENRES.filter((g) => (counts.get(g.id) ?? 0) > 0);
+  }, [data]);
 
   const channels = useMemo(() => {
+    const cacheable = !!data && !filter && cat !== FAV && cat !== RECENT;
+    const key = `${cat}|${alternatives}`;
+    const cached = cacheable ? listCache.get(data.items)?.get(key) : undefined;
+    if (cached) return cached;
     let list: CatalogItem[];
     const genre = cat.startsWith('g:') ? GENRES.find((g) => `g:${g.id}` === cat) : undefined;
     const fromLibrary = (entries?: { kind: string; id: string }[]) =>
@@ -224,12 +240,19 @@ export default function Live({ categoryId }: { categoryId?: string }) {
     list = list.filter(
       (i) => isChannel(i) && tokens.every((t) => words(i.name).join(' ').includes(t)),
     );
-    return alternatives ? list : bestVersions(list);
+    list = alternatives ? list : bestVersions(list);
+    if (cacheable) {
+      const m = listCache.get(data.items) ?? new Map<string, CatalogItem[]>();
+      m.set(key, list);
+      listCache.set(data.items, m);
+    }
+    return list;
   }, [data, cat, filter, lib, byId, matcher, alternatives, isChannel]);
-  const label = useMemo(
-    () => displayNames(channels, alternatives, data?.home),
-    [channels, alternatives, data?.home],
-  );
+  const label = useMemo(() => {
+    let f = labelCache.get(channels);
+    if (!f) labelCache.set(channels, (f = displayNames(channels, alternatives, data?.home)));
+    return f;
+  }, [channels, alternatives, data?.home]);
 
   useEffect(() => {
     const el = more.current;

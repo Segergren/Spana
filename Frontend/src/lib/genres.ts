@@ -215,7 +215,28 @@ function fold(s: string) {
     .trim();
 }
 
+const matchers = new WeakMap<Category[], ReturnType<typeof buildMatcher>>();
+
+// Cached per catalog so revisiting a page does not fold every channel name again.
 export function genreMatcher(categories: Category[]) {
+  let m = matchers.get(categories);
+  if (!m) matchers.set(categories, (m = buildMatcher(categories)));
+  return m;
+}
+
+const counts = new WeakMap<CatalogItem[], Map<string, number>>();
+
+export function genreCounts(categories: Category[], items: CatalogItem[]) {
+  let c = counts.get(items);
+  if (!c) {
+    const match = genreMatcher(categories);
+    c = new Map(GENRES.map((g) => [g.id, items.reduce((n, i) => (match(g, i) ? n + 1 : n), 0)]));
+    counts.set(items, c);
+  }
+  return c;
+}
+
+function buildMatcher(categories: Category[]) {
   const groupNames = new Map(categories.map((c) => [c.id, fold(c.name)]));
   const cache = new Map<string, string>();
   return (genre: Genre, item: CatalogItem) => {

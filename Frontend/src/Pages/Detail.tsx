@@ -235,7 +235,7 @@ function EpisodePanel({
               className="group flex w-full gap-3 rounded-xl p-2 text-left transition hover:bg-white/[0.07]"
             >
               <div className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-white/5">
-                <Art src={ep.image ?? meta.backdrop} className="h-full w-full" />
+                <Art src={ep.image ?? meta.backdrop} width={144} className="h-full w-full" />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
                   <Play size={22} fill="white" className="text-white" />
                 </div>

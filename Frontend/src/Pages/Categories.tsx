@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import { normalize } from '../lib/api';
 import { useCatalog, useNav } from '../Context/AppContext';
-import { GENRES, colorFor, genreMatcher } from '../lib/genres';
+import { GENRES, colorFor, genreCounts } from '../lib/genres';
 
 export default function Categories() {
   const { go } = useNav();
@@ -11,8 +11,8 @@ export default function Categories() {
 
   const genres = useMemo(() => {
     if (!data) return [];
-    const match = genreMatcher(data.categories);
-    return GENRES.map((g) => ({ ...g, count: data.items.filter((i) => match(g, i)).length })).filter((g) => g.count > 0);
+    const counts = genreCounts(data.categories, data.items);
+    return GENRES.map((g) => ({ ...g, count: counts.get(g.id) ?? 0 })).filter((g) => g.count > 0);
   }, [data]);
 
   const groups = useMemo(() => {
