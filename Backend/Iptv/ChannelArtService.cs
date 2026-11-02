@@ -172,7 +172,7 @@ public static class ChannelArtService
                 using var doc = await GetJson($"{SpanaApi.Base}/programmes/{Uri.EscapeDataString(broadcastId)}");
                 var data = doc.RootElement.Prop("data") ?? doc.RootElement;
                 string? image = data.Str("imageLandscape") ?? data.Str("imagePortrait") ?? data.Str("imageSquare");
-                Images[broadcastId] = image != null ? SpanaApi.Image(image + "?width=640&height=360&forceFit=1&quality=70") : null;
+                Images[broadcastId] = image != null ? SpanaApi.Image(image + "?width=640&height=360&forceFit=1&quality=85") : null;
                 Save();
             }
             catch (Exception ex)
