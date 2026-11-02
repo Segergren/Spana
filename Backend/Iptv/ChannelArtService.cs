@@ -212,7 +212,7 @@ public static class ChannelArtService
         try
         {
             if (!File.Exists(CacheFile)) return;
-            var cache = JsonSerializer.Deserialize<DiskCache>(File.ReadAllText(CacheFile));
+            var cache = JsonSerializer.Deserialize<DiskCache>(File.ReadAllText(CacheFile), Storage.Json);
             if (cache == null) return;
             foreach (var (k, v) in cache.Slugs) Slugs[k] = v;
             foreach (var (k, v) in cache.Images) Images[k] = v;
