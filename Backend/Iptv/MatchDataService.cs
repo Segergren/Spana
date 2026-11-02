@@ -111,6 +111,7 @@ public static class MatchDataService
     private static readonly ConcurrentDictionary<string, string?> Badges = new();
     private static readonly ConcurrentQueue<string> BadgeQueue = new();
     private static readonly ConcurrentDictionary<string, byte> BadgeQueued = new();
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> BadgeRetryAt = new();
     private static readonly string BadgeFile = Path.Combine(Storage.CacheRoot, "team-badges.json");
 
     private static readonly ConcurrentDictionary<string, TeamLeague> TeamLeagues = new();
@@ -787,6 +788,7 @@ public static class MatchDataService
     {
         string key = CatalogService.Normalize(team) + "|" + (sport ?? "");
         if (Badges.TryGetValue(key, out var url)) return url;
+        if (BadgeRetryAt.TryGetValue(key, out var at) && DateTimeOffset.UtcNow < at) return null;
         if (BadgeQueued.TryAdd(key, 0)) BadgeQueue.Enqueue(key);
         return null;
     }
@@ -800,6 +802,7 @@ public static class MatchDataService
             {
                 var parts = key.Split('|');
                 string? found = null;
+                bool answered = false;
                 try
                 {
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -807,11 +810,21 @@ public static class MatchDataService
                     string? wanted = SportsDbSport(parts[1]);
                     var team = (doc.RootElement.Prop("teams") ?? default).Items().FirstOrDefault(t => t.Str("strSport") == wanted);
                     if (team.ValueKind == JsonValueKind.Object) found = team.Str("strBadge") is { } badge ? SpanaApi.Image(badge) : null;
+                    answered = true;
                 }
                 catch (Exception ex)
                 {
                     Log.Debug("Badge lookup failed for {Team}: {Message}", parts[0], ex.Message);
                 }
+                if (!answered)
+                {
+                    // Only an answer is kept; a failed lookup is asked again later.
+                    BadgeRetryAt[key] = DateTimeOffset.UtcNow.AddMinutes(10);
+                    BadgeQueued.TryRemove(key, out _);
+                    await Task.Delay(TimeSpan.FromSeconds(2.5));
+                    continue;
+                }
+                BadgeRetryAt.TryRemove(key, out _);
                 Badges[key] = found;
                 if (++sinceSave >= 5 || BadgeQueue.IsEmpty)
                 {
