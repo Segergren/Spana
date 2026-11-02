@@ -59,10 +59,8 @@ export default function ChannelNowCard({
               src={logo}
               altSrc={logoAlt}
               fit="contain"
-              className="h-full w-full"
-              frame={(img) => (
-                <div className="absolute bottom-2 left-2 flex h-7 w-12 items-center justify-center rounded-md bg-black/70 p-1">{img}</div>
-              )}
+              className="h-full w-full object-[right_top] drop-shadow-[0_1px_2.5px_rgba(0,0,0,0.6)]"
+              frame={(img) => <div className="absolute right-3.5 top-3.5 h-14 w-32">{img}</div>}
             />
           </>
         ) : (
