@@ -55,10 +55,12 @@ public static class ImageCache
     public static async Task<(string? path, string contentType)> GetAsync(string url, int width)
     {
         var (path, type) = await GetAsync(url);
-        if (path == null || width <= 0 || !OperatingSystem.IsWindows() || type == "image/svg+xml" || NoResize.ContainsKey(path))
+        // GDI+ reads JPEG and PNG reliably; WebP, SVG and animated GIFs are served as they are.
+        if (path == null || width <= 0 || !OperatingSystem.IsWindows() || (type != "image/jpeg" && type != "image/png"))
             return (path, type);
         int w = Widths.FirstOrDefault(x => x >= width, Widths[^1]);
         string thumb = $"{path}.w{w}";
+        if (NoResize.ContainsKey(thumb)) return (path, type);
         if (File.Exists(thumb) && File.GetLastWriteTimeUtc(thumb) >= File.GetLastWriteTimeUtc(path))
             return (thumb, Sniff(thumb));
 
@@ -66,7 +68,7 @@ public static class ImageCache
         try
         {
             var result = await task.Value;
-            if (result == null) NoResize[path] = 0;
+            if (result == null) NoResize[thumb] = 0;
             return result != null ? (result, Sniff(result)) : (path, type);
         }
         finally
@@ -80,17 +82,34 @@ public static class ImageCache
         await ResizeGate.WaitAsync();
         try
         {
-            return await Task.Run(() => OperatingSystem.IsWindows() ? Resize(source, target, width) : null);
-        }
-        catch (Exception ex)
-        {
-            // GDI+ cannot read WebP and a few odd files; those are served as they are.
-            Log.Debug("Image resize skipped {Path}: {Message}", source, ex.Message);
-            return null;
+            return await Task.Run(() => OperatingSystem.IsWindows() ? TryResize(source, target, width) : null);
         }
         finally
         {
             ResizeGate.Release();
+        }
+    }
+
+    // Looked up once: asking GDI+ for its encoders from several threads at once sometimes returns none.
+    [SupportedOSPlatform("windows")]
+    private static readonly Lazy<(ImageCodecInfo jpeg, ImageCodecInfo png)> Encoders = new(() =>
+    {
+        var all = ImageCodecInfo.GetImageEncoders();
+        return (all.First(c => c.FormatID == ImageFormat.Jpeg.Guid), all.First(c => c.FormatID == ImageFormat.Png.Guid));
+    });
+
+    // Caught here, inside the task, so a file GDI+ cannot read does not surface as unhandled in the debugger.
+    [SupportedOSPlatform("windows")]
+    private static string? TryResize(string source, string target, int width)
+    {
+        try
+        {
+            return Resize(source, target, width);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Image resize skipped {Path}: {Message}", source, ex.Message);
+            return null;
         }
     }
 
@@ -117,14 +136,13 @@ public static class ImageCache
         string tmp = target + ".tmp";
         if (alpha)
         {
-            bmp.Save(tmp, ImageFormat.Png);
+            bmp.Save(tmp, Encoders.Value.png, null);
         }
         else
         {
-            var codec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
             using var p = new EncoderParameters(1);
             p.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
-            bmp.Save(tmp, codec, p);
+            bmp.Save(tmp, Encoders.Value.jpeg, p);
         }
         File.Move(tmp, target, true);
         return target;
