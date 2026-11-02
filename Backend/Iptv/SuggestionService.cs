@@ -162,7 +162,7 @@ public static class SuggestionService
         }
 
         foreach (var (k, v) in leagueAcc)
-            if (v.minutes >= MinMinutes) profile.Leagues[k] = (v.weight, v.name);
+            if (v.minutes >= MinMinutes) profile.Leagues[k] = (v.weight, v.name ?? k);
         foreach (var (k, v) in countryAcc)
             if (v.minutes >= MinMinutes) profile.Countries[k] = v.weight;
         foreach (var (k, v) in sportAcc)
