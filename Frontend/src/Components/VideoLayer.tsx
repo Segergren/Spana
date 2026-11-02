@@ -85,12 +85,28 @@ export default function VideoLayer() {
     return () => r.dispose();
   }, []);
 
+  // The picture and the loading screen swap once, when the stream really plays, not at its first frame.
+  const [started, setStarted] = useState(false);
+  // A new stream starts from black, so the last channel's picture never lingers while the next one opens.
+  const opening = state.status === 'opening';
   useEffect(() => {
-    if (!active) {
+    if (!active || opening) {
       rendererRef.current?.clear();
       setInfo(null);
+      setStarted(false);
     }
-  }, [active]);
+  }, [active, opening]);
+
+  const settled = !!info && state.status !== 'opening' && state.status !== 'buffering';
+  useEffect(() => {
+    if (started || !info) return;
+    if (settled) {
+      setStarted(true);
+      return;
+    }
+    const t = window.setTimeout(() => setStarted(true), 4000);
+    return () => window.clearTimeout(t);
+  }, [started, info, settled]);
 
   useEffect(() => {
     if (!slot) {
@@ -159,14 +175,14 @@ export default function VideoLayer() {
           height: ch,
           left: (box.w - cw) / 2,
           top: (box.h - ch) / 2,
-          visibility: info && active && !casting ? 'visible' : 'hidden',
+          visibility: started && active && !casting ? 'visible' : 'hidden',
         }}
       />
       {active &&
         (casting && state.status !== 'error' ? (
           <CastOverlay cast={cast} state={state} compact={mode === 'mini'} />
         ) : (
-          <StatusOverlay state={state} hasFrame={!!info} />
+          <StatusOverlay state={state} hasFrame={started} />
         ))}
       {mode === 'full' && (
         <FullControls state={state} fullscreen={fullscreen} setFullscreen={setFullscreen} />
@@ -202,23 +218,26 @@ function StatusOverlay({ state, hasFrame }: { state: PlayerState; hasFrame: bool
       </div>
     );
   }
-  const waiting = state.status === 'opening' || state.status === 'buffering';
-  if (!waiting && hasFrame) return null;
   if (state.status === 'ended') return null;
+  // Live streams often report playing before their first picture arrives, so loading lasts until it does.
+  const loading = state.status === 'opening' || state.status === 'buffering' || (!hasFrame && state.status !== 'paused');
+  if (!loading && hasFrame) return null;
+  const logo = !hasFrame ? img(state.item?.icon) : undefined;
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3">
-      {!hasFrame && state.item?.icon && (
-        <SafeImg
-          src={img(state.item.icon)}
-          className="max-h-24 max-w-48 object-contain opacity-60"
-        />
+    <div className="pointer-events-none absolute inset-0">
+      {logo && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <SafeImg src={logo} className="max-h-24 max-w-48 object-contain opacity-60" />
+        </div>
       )}
-      {waiting && (
-        <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white/80">
-          <Loader2 size={16} className="animate-spin" />
-          {state.status === 'buffering' && state.buffering > 0 && state.buffering < 100
-            ? `Buffering ${Math.round(state.buffering)}%`
-            : 'Loading'}
+      {loading && (
+        <div className={`absolute inset-x-0 flex justify-center ${logo ? 'top-[calc(50%+64px)]' : 'top-1/2 -translate-y-1/2'}`}>
+          <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white/80">
+            <Loader2 size={16} className="animate-spin" />
+            {state.status === 'buffering' && state.buffering > 0 && state.buffering < 100
+              ? `Buffering ${Math.round(state.buffering)}%`
+              : 'Loading'}
+          </div>
         </div>
       )}
     </div>

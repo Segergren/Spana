@@ -426,7 +426,10 @@ export function setPlayerPatcher(fn: (patch: PlayerPatch) => void) {
 }
 
 export const player = {
-  play: (item: PlayRequest) => api.player('play', { item }),
+  play: (item: PlayRequest) => {
+    patchPlayer?.(() => ({ status: 'opening', item, error: undefined, timeMs: item.startMs ?? 0, lengthMs: 0, buffering: 0 }));
+    return api.player('play', { item });
+  },
   toggle: () => {
     patchPlayer?.((s) =>
       s.status === 'paused' ? { status: 'playing' } : s.status === 'playing' || s.status === 'buffering' ? { status: 'paused' } : {},

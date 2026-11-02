@@ -230,6 +230,8 @@ public static class PlayerService
             State.VideoHeight = 0;
             State.Status = "opening";
             _retries = 0;
+            // Told before the old stream stops, which can take a moment, so the new channel's loading screen shows at once.
+            Broadcast();
 
             _switching = true;
             if (_mp.Media != null) _mp.Stop();
