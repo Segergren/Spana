@@ -6,11 +6,37 @@ export function logoOf(c?: { icon?: string; iconAlt?: string }) {
   return c?.iconAlt ?? c?.icon;
 }
 
+// Dead links are remembered for the session, so a card that mounts again does not retry them.
+const deadUrls = new Set<string>();
+
+// Hidden until loaded, so a link that fails never shows the browser's broken-image icon, not even briefly.
+function useLoaded(url?: string) {
+  const [loaded, setLoaded] = useState<string>();
+  const ref = (el: HTMLImageElement | null) => {
+    if (el?.complete && el.naturalWidth > 0 && loaded !== url) setLoaded(url);
+  };
+  return { ref, onLoad: () => setLoaded(url), hidden: loaded !== url ? 'invisible' : '' };
+}
+
 // A plain image that disappears instead of showing the browser's broken-image icon.
 export function SafeImg({ src, className }: { src?: string; className?: string }) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  if (!src || failedSrc === src) return null;
-  return <img src={src} draggable={false} decoding="async" onError={() => setFailedSrc(src)} className={className} />;
+  const [, setFailed] = useState(0);
+  const load = useLoaded(src);
+  if (!src || deadUrls.has(src)) return null;
+  return (
+    <img
+      ref={load.ref}
+      src={src}
+      draggable={false}
+      decoding="async"
+      onLoad={load.onLoad}
+      onError={() => {
+        deadUrls.add(src);
+        setFailed((n) => n + 1);
+      }}
+      className={`${className ?? ''} ${load.hidden}`}
+    />
+  );
 }
 
 export function Art({
@@ -37,26 +63,35 @@ export function Art({
   /** Displayed width in CSS pixels, so a scaled-down copy is fetched. */
   width?: number;
 }) {
-  // Remember which URLs failed rather than how many, so a source that arrives later (a fresh logo link) is still tried.
-  const [failed, setFailed] = useState<string[]>([]);
+  // Failed URLs are tracked rather than a count, so a source that arrives later (a fresh logo link) is still tried.
+  const [, setFailed] = useState(0);
   const sources = [src, altSrc].filter((s, i, all) => s && all.indexOf(s) === i) as string[];
-  const current = sources.find((s) => !failed.includes(s));
+  const current = sources.find((s) => !deadUrls.has(s));
   const url = img(current, width);
+  const load = useLoaded(url);
+  const allFailed = sources.length > 0 && !current;
+
+  useEffect(() => {
+    if (allFailed) onFail?.();
+  }, [allFailed]);
+
   // Nothing at all when there is no working image; the card keeps its shape and background.
   if (!url) return frame ? null : <div className={className} />;
   const image = (
     <img
+      ref={load.ref}
       src={url}
       alt={alt}
       loading="lazy"
       decoding="async"
       draggable={false}
+      onLoad={load.onLoad}
       onError={() => {
         if (!current) return;
-        setFailed((f) => (f.includes(current) ? f : [...f, current]));
-        if (sources.every((s) => s === current || failed.includes(s))) onFail?.();
+        deadUrls.add(current);
+        setFailed((n) => n + 1);
       }}
-      className={`${fit === 'cover' ? 'object-cover' : 'object-contain'} ${className ?? ''}`}
+      className={`${fit === 'cover' ? 'object-cover' : 'object-contain'} ${className ?? ''} ${load.hidden}`}
     />
   );
   return frame ? frame(image) : image;
