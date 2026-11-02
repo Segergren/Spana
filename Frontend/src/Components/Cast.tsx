@@ -130,7 +130,7 @@ export function CastError() {
       <CastIcon size={18} className="mt-0.5 shrink-0 text-error" />
       <span className="flex-1">{message}</span>
       <button
-        className="text-white/60 hover:text-white"
+        className="text-white opacity-60 hover:opacity-100"
         onClick={() => void api.castAction('dismissError').catch(() => undefined)}
       >
         <X size={16} />

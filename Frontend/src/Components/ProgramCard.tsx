@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Tv } from 'lucide-react';
 import { clock, img, type CatalogItem, type MatchInfo, type ProgramView } from '../lib/api';
 import { Art, SafeImg, logoOf } from './Cards';
 import { sportStyle } from '../lib/sports';
@@ -124,7 +123,7 @@ export default function ProgramCard({
         ) : (
           // No match image: a flat sport card with the tournament instead of a stretched channel logo.
           <div className="relative flex h-full flex-col justify-start overflow-hidden p-4" style={{ background: sportLook.color }}>
-            <SportIcon className="absolute -bottom-6 -right-4 h-36 w-36 text-white/[0.09]" strokeWidth={1.5} />
+            <SportIcon className="absolute -bottom-6 -right-4 h-36 w-36 text-white opacity-[0.09]" strokeWidth={1.5} />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-white/60">{tag ?? 'Sport'}</span>
             <span className="mt-1 line-clamp-2 max-w-[80%] text-lg font-bold leading-tight text-white">
               {cleanTournament(info?.tournament) ?? (prefix && !sportPrefix ? prefix : undefined) ?? (matchup ? `${matchup[0]} vs ${matchup[1]}` : rest)}
@@ -132,10 +131,14 @@ export default function ProgramCard({
           </div>
         )}
         <div className="absolute right-2 top-2">{badge}</div>
-        <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded-md bg-black/70 py-1 pl-1 pr-2">
-          <span className="flex h-5 w-7 items-center justify-center">
-            <Art src={logoOf(channel)} altSrc={channel.icon} fit="contain" className="h-full w-full" fallback={<Tv size={12} />} />
-          </span>
+        <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 has-[img]:pl-1">
+          <Art
+            src={logoOf(channel)}
+            altSrc={channel.icon}
+            fit="contain"
+            className="h-full w-full"
+            frame={(img) => <span className="flex h-5 w-7 shrink-0 items-center justify-center">{img}</span>}
+          />
           <span className="truncate text-[11px] text-white/85">{channel.name}</span>
         </div>
         {live && (

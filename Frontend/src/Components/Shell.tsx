@@ -43,7 +43,7 @@ export function TopBar() {
       <button
         onClick={back}
         disabled={!canGoBack}
-        className="btn btn-circle btn-ghost btn-sm text-white/70 disabled:opacity-25"
+        className="btn btn-circle btn-ghost btn-sm text-white disabled:opacity-25 [&>svg]:opacity-70"
       >
         <ArrowLeft size={18} />
       </button>
@@ -83,7 +83,7 @@ export function TopBar() {
         <UpdateButton />
         <button
           onClick={() => go({ name: 'settings' })}
-          className={`btn btn-circle btn-ghost btn-sm ${route.name === 'settings' ? 'bg-white/10 text-white' : 'text-white/70'}`}
+          className={`btn btn-circle btn-ghost btn-sm ${route.name === 'settings' ? 'bg-white/10 text-white' : 'text-white [&>svg]:opacity-70'}`}
         >
           <Settings size={18} />
         </button>
@@ -123,7 +123,7 @@ function SearchBox() {
 
   return (
     <label className="flex h-10 w-80 items-center gap-2.5 rounded-full bg-white/[0.07] px-4 transition focus-within:w-[26rem] focus-within:bg-white/10 xl:w-96">
-      <Search size={16} className="shrink-0 text-white/50" />
+      <Search size={16} className="shrink-0 text-white opacity-50" />
       <input
         ref={input}
         value={q}
@@ -138,7 +138,7 @@ function SearchBox() {
         className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/40"
       />
       {q ? (
-        <button onClick={() => update('')} className="text-white/50 hover:text-white">
+        <button onClick={() => update('')} className="text-white opacity-50 hover:opacity-100">
           <X size={15} />
         </button>
       ) : (
@@ -184,7 +184,7 @@ function RefreshButton() {
   const { data: boot } = useBootstrap();
   const loading = boot?.catalogs.some((c) => c.loading);
   return (
-    <button onClick={() => api.refresh()} className="btn btn-circle btn-ghost btn-sm text-white/70">
+    <button onClick={() => api.refresh()} className="btn btn-circle btn-ghost btn-sm text-white [&>svg]:opacity-70">
       {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={17} />}
     </button>
   );

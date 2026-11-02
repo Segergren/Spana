@@ -50,7 +50,7 @@ export default function Categories() {
         <div className="mb-4 flex items-center gap-4">
           <h2 className="text-xl font-semibold">Countries and providers</h2>
           <label className="ml-auto flex h-9 w-64 items-center gap-2 rounded-full bg-white/[0.07] px-4">
-            <Search size={14} className="text-white/40" />
+            <Search size={14} className="text-white opacity-40" />
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}

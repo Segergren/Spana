@@ -81,12 +81,12 @@ export default function Detail({ kind, id }: { kind: 'movie' | 'series'; id: str
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-white/75">
                 {meta.year && (
                   <span className="flex items-center gap-1.5">
-                    <Calendar size={14} /> {meta.year}
+                    <Calendar size={14} className="text-white opacity-75" /> {meta.year}
                   </span>
                 )}
                 {meta.runtime && (
                   <span className="flex items-center gap-1.5">
-                    <Clock size={14} /> {meta.runtime}
+                    <Clock size={14} className="text-white opacity-75" /> {meta.runtime}
                   </span>
                 )}
                 {meta.rating ? (

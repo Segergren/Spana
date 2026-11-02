@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Tv } from 'lucide-react';
 import { api, clock, type GuideNow } from '../lib/api';
 import { Art } from './Cards';
 
@@ -56,14 +55,19 @@ export default function ChannelNowCard({
               onFail={() => setBroken(image)}
               className="h-full w-full transition-transform duration-300 group-hover:scale-[1.02]"
             />
-            <div className="absolute bottom-2 left-2 flex h-7 w-12 items-center justify-center rounded-md bg-black/70 p-1">
-              <Art src={logo} altSrc={logoAlt} fit="contain" className="h-full w-full" />
-            </div>
+            <Art
+              src={logo}
+              altSrc={logoAlt}
+              fit="contain"
+              className="h-full w-full"
+              frame={(img) => (
+                <div className="absolute bottom-2 left-2 flex h-7 w-12 items-center justify-center rounded-md bg-black/70 p-1">{img}</div>
+              )}
+            />
           </>
         ) : (
-          <div className="relative flex h-full items-center justify-center p-8">
-            <Tv className="absolute h-8 w-8 text-white/10" />
-            <Art src={logo} altSrc={logoAlt} fit="contain" className="relative h-full w-full" />
+          <div className="flex h-full items-center justify-center p-8">
+            <Art src={logo} altSrc={logoAlt} fit="contain" className="h-full w-full" />
           </div>
         )}
         {pct > 0 && (

@@ -20,6 +20,7 @@ export function Art({
   className,
   fit = 'cover',
   onFail,
+  frame,
 }: {
   src?: string;
   altSrc?: string;
@@ -30,6 +31,8 @@ export function Art({
   onFail?: () => void;
   /** Ignored: failed images render nothing. Kept so existing callers stay valid. */
   fallback?: ReactNode;
+  /** Wraps the image; nothing at all, wrapper included, is rendered without a working image. */
+  frame?: (img: ReactNode) => ReactNode;
 }) {
   // Remember which URLs failed rather than how many, so a source that arrives later (a fresh logo link) is still tried.
   const [failed, setFailed] = useState<string[]>([]);
@@ -37,8 +40,8 @@ export function Art({
   const current = sources.find((s) => !failed.includes(s));
   const url = img(current);
   // Nothing at all when there is no working image; the card keeps its shape and background.
-  if (!url) return <div className={className} />;
-  return (
+  if (!url) return frame ? null : <div className={className} />;
+  const image = (
     <img
       src={url}
       alt={alt}
@@ -53,6 +56,7 @@ export function Art({
       className={`${fit === 'cover' ? 'object-cover' : 'object-contain'} ${className ?? ''}`}
     />
   );
+  return frame ? frame(image) : image;
 }
 
 export function PosterCard({
