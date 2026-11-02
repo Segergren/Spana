@@ -146,4 +146,6 @@ public sealed class Library
     public List<LibraryEntry> Favorites { get; set; } = new();
     public List<LibraryEntry> History { get; set; } = new();
     public List<LiveWatch> LiveWatches { get; set; } = new();
+    // Interests removed in settings ("team:fm:123", "league:allsvenskan"), with when; viewing before then no longer counts.
+    public Dictionary<string, DateTimeOffset> Forgotten { get; set; } = new();
 }

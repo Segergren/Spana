@@ -49,6 +49,8 @@ public static class SuggestionService
         public string Name = "";
         public double Weight;
         public string Source = "";
+        // Every id and name this team was seen under, so forgetting it covers all of them.
+        public HashSet<string> Keys = new();
     }
 
     internal sealed class Profile
@@ -91,8 +93,12 @@ public static class SuggestionService
         var leagueAcc = new Dictionary<string, (double minutes, double weight, string? name)>();
         var countryAcc = new Dictionary<string, (double minutes, double weight)>(StringComparer.OrdinalIgnoreCase);
         var sportAcc = new Dictionary<string, (double minutes, double weight)>(StringComparer.OrdinalIgnoreCase);
+        var forgotten = LibraryService.Forgotten(accountId);
         foreach (var w in LibraryService.LiveWatches(accountId))
         {
+            // Viewing from before an interest was removed in settings no longer counts towards it.
+            bool Gone(string key) => forgotten.TryGetValue(key, out var at) && w.LastWatched <= at;
+
             double decay = Math.Pow(0.5, (now - w.LastWatched).TotalDays / HalfLifeDays);
             double weight = Math.Log(1 + Math.Min(w.Minutes, 240)) * decay;
             profile.Channels[w.ChannelId] = profile.Channels.GetValueOrDefault(w.ChannelId) + weight;
@@ -106,9 +112,12 @@ public static class SuggestionService
                 for (int i = 0; i < parsed.Teams.Count; i++)
                 {
                     string? id = (i == 0 ? w.HomeId : w.AwayId) ?? MatchDataService.LeagueOf(parsed.Teams[i])?.TeamId;
+                    string nameKey = "team:n:" + CatalogService.Normalize(parsed.TeamNames[i]);
+                    string? idKey = id != null ? "team:" + id : null;
+                    if (Gone(nameKey) || (idKey != null && Gone(idKey))) continue;
                     var existing = profile.Teams.FirstOrDefault(t => id != null && t.Id != null ? t.Id == id : t.Team.SameAs(parsed.Teams[i]));
                     if (existing == null)
-                        profile.Teams.Add(new Interest
+                        profile.Teams.Add(existing = new Interest
                         {
                             Team = parsed.Teams[i], Id = id, Name = parsed.TeamNames[i], Weight = weight, Source = w.Title,
                             Sport = w.Sport ?? SportService.Classify(parsed.Category, CatalogService.Normalize(w.Title)) ?? (id?.StartsWith("fm:") == true ? "Football" : null)
@@ -119,8 +128,10 @@ public static class SuggestionService
                         existing.Id ??= id;
                         existing.Weight += weight;
                     }
+                    existing.Keys.Add(nameKey);
+                    if (idKey != null) existing.Keys.Add(idKey);
                 }
-                if (parsed.Teams.Count == 0 && parsed.Show.Length > 2)
+                if (parsed.Teams.Count == 0 && parsed.Show.Length > 2 && !Gone("show:" + parsed.Show))
                 {
                     var prev = profile.Shows.GetValueOrDefault(parsed.Show);
                     profile.Shows[parsed.Show] = (prev.weight + weight, w.Title);
@@ -144,17 +155,17 @@ public static class SuggestionService
             country ??= MatchDataService.CountryOf(league);
 
             // Leagues, countries and sports add up across viewings, so several short visits to Allsvenskan count.
-            if (league != null)
+            if (league != null && !Gone("league:" + league))
             {
                 var prev = leagueAcc.GetValueOrDefault(league);
                 leagueAcc[league] = (prev.minutes + w.Minutes, prev.weight + weight, prev.name ?? CleanLeague(leagueName ?? league));
             }
-            if (country != null)
+            if (country != null && !Gone("country:" + country))
             {
                 var prev = countryAcc.GetValueOrDefault(country);
                 countryAcc[country] = (prev.minutes + w.Minutes, prev.weight + weight);
             }
-            if (sport != null)
+            if (sport != null && !Gone("sport:" + sport))
             {
                 var prev = sportAcc.GetValueOrDefault(sport);
                 sportAcc[sport] = (prev.minutes + w.Minutes, prev.weight + weight);
@@ -168,6 +179,46 @@ public static class SuggestionService
         foreach (var (k, v) in sportAcc)
             if (v.minutes >= MinMinutes) profile.Sports[k] = v.weight;
         return profile;
+    }
+
+    public sealed class InterestView
+    {
+        public string Name { get; set; } = "";
+        public string? Detail { get; set; }
+        public List<string> Keys { get; set; } = new();
+    }
+
+    public sealed class InterestList
+    {
+        public List<InterestView> Teams { get; set; } = new();
+        public List<InterestView> Leagues { get; set; } = new();
+        public List<InterestView> Shows { get; set; } = new();
+        public List<InterestView> Countries { get; set; } = new();
+        public List<InterestView> Sports { get; set; } = new();
+    }
+
+    // What the suggestions think you follow, strongest first, for settings to show and remove one by one.
+    public static InterestList Interests(string accountId)
+    {
+        var p = BuildProfile(accountId);
+        string Country(string code)
+        {
+            string name = CountryNames.GetValueOrDefault(code, code.ToUpperInvariant());
+            return name.StartsWith("the ") ? char.ToUpperInvariant(name[4]) + name[5..] : name;
+        }
+        return new InterestList
+        {
+            Teams = p.Teams.OrderByDescending(t => t.Weight)
+                .Select(t => new InterestView { Name = t.Name, Detail = t.Sport, Keys = t.Keys.ToList() }).ToList(),
+            Leagues = p.Leagues.OrderByDescending(l => l.Value.weight)
+                .Select(l => new InterestView { Name = l.Value.name, Keys = ["league:" + l.Key] }).ToList(),
+            Shows = p.Shows.OrderByDescending(s => s.Value.weight)
+                .Select(s => new InterestView { Name = s.Value.source, Keys = ["show:" + s.Key] }).ToList(),
+            Countries = p.Countries.OrderByDescending(c => c.Value)
+                .Select(c => new InterestView { Name = Country(c.Key), Keys = ["country:" + c.Key] }).ToList(),
+            Sports = p.Sports.OrderByDescending(s => s.Value)
+                .Select(s => new InterestView { Name = s.Key, Keys = ["sport:" + s.Key] }).ToList(),
+        };
     }
 
     private static string CleanLeague(string name)

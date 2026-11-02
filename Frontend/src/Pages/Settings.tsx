@@ -5,6 +5,7 @@ import { api, type AppSettings } from '../lib/api';
 import { useBootstrap } from '../Context/AppContext';
 import AddAccount from '../Components/AddAccount';
 import HiddenChannels from '../Components/HiddenChannels';
+import Interests from '../Components/Interests';
 import { enhanceEnabled, setEnhanceEnabled, subscribeEnhance } from '../lib/videoRenderer';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -247,7 +248,7 @@ export default function Settings() {
               className="btn btn-sm rounded-full"
               onClick={async () => {
                 await api.clearWatchProfile();
-                qc.invalidateQueries({ queryKey: ['suggestions'] });
+                for (const key of ['suggestions', 'sport', 'interests']) qc.invalidateQueries({ queryKey: [key] });
               }}
             >
               <Trash2 size={14} /> Reset
@@ -265,6 +266,8 @@ export default function Settings() {
             </button>
           </Field>
         </Section>
+
+        <Interests />
 
         <HiddenChannels
           value={draft.hiddenChannels ?? []}

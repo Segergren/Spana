@@ -28,6 +28,11 @@ internal static class Routes
         public bool Enabled { get; set; }
     }
 
+    private sealed class ForgetBody
+    {
+        public List<string> Keys { get; set; } = new();
+    }
+
     private sealed class CastBody
     {
         public string Action { get; set; } = "";
@@ -113,6 +118,18 @@ internal static class Routes
                     await FeedCache.WaitUntilReady(RequireAccount());
                     var cached = FeedCache.Suggestions(RequireAccount());
                     await ApiServer.WriteJson(res, cached.Take(sl));
+                }
+                return;
+
+            case "interests" when method == "GET":
+                await ApiServer.WriteJson(res, SuggestionService.Interests(RequireAccount().Id));
+                return;
+
+            case "interests" when method == "POST" && parts.ElementAtOrDefault(1) == "forget":
+                {
+                    var account = RequireAccount();
+                    LibraryService.Forget(account.Id, (await ApiServer.ReadJson<ForgetBody>(req)).Keys);
+                    await ApiServer.WriteJson(res, SuggestionService.Interests(account.Id));
                 }
                 return;
 

@@ -319,6 +319,20 @@ export interface GuideNow {
   nextStart?: number;
 }
 
+export interface InterestView {
+  name: string;
+  detail?: string;
+  keys: string[];
+}
+
+export interface InterestList {
+  teams: InterestView[];
+  leagues: InterestView[];
+  shows: InterestView[];
+  countries: InterestView[];
+  sports: InterestView[];
+}
+
 export interface SearchResults {
   live: CatalogItem[];
   movie: CatalogItem[];
@@ -387,6 +401,8 @@ export const api = {
   sport: () => request<SportEvent[]>('GET', '/api/sport'),
   suggestions: (limit = 20) => request<Suggestion[]>('GET', `/api/suggestions?limit=${limit}`),
   clearWatchProfile: () => request('DELETE', '/api/watchprofile'),
+  interests: () => request<InterestList>('GET', '/api/interests'),
+  forgetInterest: (keys: string[]) => request<InterestList>('POST', '/api/interests/forget', { keys }),
   library: () => request<Library>('GET', '/api/library'),
   toggleFavorite: (entry: LibraryEntry) =>
     request<{ favorite: boolean }>('POST', '/api/favorite', entry),

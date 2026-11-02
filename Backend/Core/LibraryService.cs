@@ -136,12 +136,33 @@ public static class LibraryService
         }
     }
 
+    public static Dictionary<string, DateTimeOffset> Forgotten(string accountId)
+    {
+        lock (Gate)
+        {
+            return new Dictionary<string, DateTimeOffset>(ForAccount(accountId).Forgotten);
+        }
+    }
+
+    public static void Forget(string accountId, IEnumerable<string> keys)
+    {
+        lock (Gate)
+        {
+            var lib = ForAccount(accountId);
+            var now = DateTimeOffset.UtcNow;
+            foreach (var k in keys) lib.Forgotten[k] = now;
+            Storage.Save(PathFor(accountId), lib);
+            FeedCache.Invalidate();
+        }
+    }
+
     public static void ClearLiveWatches(string accountId)
     {
         lock (Gate)
         {
             var lib = ForAccount(accountId);
             lib.LiveWatches.Clear();
+            lib.Forgotten.Clear();
             Storage.Save(PathFor(accountId), lib);
             FeedCache.Invalidate();
         }
