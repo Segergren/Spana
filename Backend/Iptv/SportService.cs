@@ -445,7 +445,7 @@ public static partial class SportService
         foreach (var (item, ev) in cache.List)
         {
             long end = ev.Start + 3 * 3_600_000;
-            if (end <= now - AfterMatch || ev.Start > horizon || ChannelFilter.Hidden(item)) continue;
+            if (end <= now - AfterMatch || ev.Start > horizon || ChannelFilter.Hidden(item, needsGuide: false)) continue;
             var parsed = new ProgramTitle(ev.Title);
             string context = CatalogService.Normalize(ev.Label + " " + groups.GetValueOrDefault(item.CategoryId, ""));
             bool na = item.Country is "us" or "ca" || context.Contains("usa");

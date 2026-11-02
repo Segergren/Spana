@@ -50,7 +50,7 @@ export default function Settings() {
   const save = async (patch: Partial<AppSettings>) => {
     setDraft({ ...draft, ...patch });
     qc.setQueryData(['bootstrap'], await api.updateSettings(patch));
-    if ('hideAdult' in patch || 'hiddenChannels' in patch) {
+    if ('hideAdult' in patch || 'hiddenChannels' in patch || 'hideNoGuide' in patch) {
       for (const key of ['catalog', 'sport', 'suggestions', 'search']) qc.invalidateQueries({ queryKey: [key] });
     }
   };
@@ -266,7 +266,12 @@ export default function Settings() {
           </Field>
         </Section>
 
-        <HiddenChannels value={draft.hiddenChannels ?? []} onChange={(hiddenChannels) => save({ hiddenChannels })} />
+        <HiddenChannels
+          value={draft.hiddenChannels ?? []}
+          onChange={(hiddenChannels) => save({ hiddenChannels })}
+          hideNoGuide={draft.hideNoGuide ?? false}
+          onHideNoGuide={(hideNoGuide) => save({ hideNoGuide })}
+        />
 
         <Section title="Network">
           <div>

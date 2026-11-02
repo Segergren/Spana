@@ -75,15 +75,24 @@ function Rule({
   );
 }
 
-export default function HiddenChannels({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+export default function HiddenChannels({
+  value,
+  onChange,
+  hideNoGuide,
+  onHideNoGuide,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  hideNoGuide: boolean;
+  onHideNoGuide: (v: boolean) => void;
+}) {
   const [text, setText] = useState('');
   const typed = useDebounced(text.trim(), 200);
   const duplicate = value.some((v) => v.toLowerCase() === text.trim().toLowerCase());
 
   const saved = useQuery({
-    queryKey: ['hiddenPreview', value],
+    queryKey: ['hiddenPreview', value, hideNoGuide],
     queryFn: () => api.hiddenPreview(value),
-    enabled: value.length > 0,
     placeholderData: keepPreviousData,
   });
   const live = useQuery({
@@ -93,7 +102,8 @@ export default function HiddenChannels({ value, onChange }: { value: string[]; o
     placeholderData: keepPreviousData,
   });
   const preview = typed && text.trim() === typed ? live.data?.patterns[0] : undefined;
-  const total = value.length > 0 ? saved.data?.total : 0;
+  const total = saved.data?.total;
+  const noGuide = saved.data?.guideLoaded ? saved.data.noGuide : undefined;
 
   const add = (p = text.trim()) => {
     if (!p || value.some((v) => v.toLowerCase() === p.toLowerCase())) return;
@@ -112,8 +122,30 @@ export default function HiddenChannels({ value, onChange }: { value: string[]; o
         )}
       </div>
       <p className="mb-5 text-sm text-muted">
-        Hide channels by name everywhere in the app. <span className="font-mono text-white/70">*</span> matches any text and{' '}
-        <span className="font-mono text-white/70">?</span> one character.
+        Channels hidden here are left out of every list in the app.
+      </p>
+
+      <label className="mb-6 flex cursor-pointer items-center justify-between gap-6 rounded-xl bg-white/[0.04] px-4 py-3">
+        <div>
+          <div className="text-sm font-medium">Channels without guide info</div>
+          <div className="text-xs text-muted">
+            {noGuide === undefined
+              ? 'Hide channels with nothing in the guide for now or later'
+              : `${plural(noGuide)} have nothing in the guide for now or later`}
+          </div>
+        </div>
+        <input
+          type="checkbox"
+          className="toggle toggle-primary"
+          checked={hideNoGuide}
+          onChange={(e) => onHideNoGuide(e.target.checked)}
+        />
+      </label>
+
+      <div className="mb-3 text-sm font-medium">By name</div>
+      <p className="mb-3 text-xs text-muted">
+        Use <span className="font-mono text-white/70">*</span> for any text and{' '}
+        <span className="font-mono text-white/70">?</span> for one character.
       </p>
 
       <form

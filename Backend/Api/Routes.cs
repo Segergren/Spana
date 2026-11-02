@@ -222,7 +222,7 @@ internal static class Routes
             settings = new
             {
                 s.UserAgent, s.NetworkCachingMs, s.Volume, s.HardwareDecoding, s.AudioDelayMs, s.LiveCacheHours, s.VodCacheHours,
-                s.HideAdult, s.HiddenChannels, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel
+                s.HideAdult, s.HiddenChannels, s.HideNoGuide, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel
             },
             catalogs = active != null ? CatalogService.GetStatus(active) : []
         };
@@ -321,6 +321,7 @@ internal static class Routes
                 case "liveCacheHours": s.LiveCacheHours = Math.Clamp(v.GetInt32(), 1, 168); break;
                 case "vodCacheHours": s.VodCacheHours = Math.Clamp(v.GetInt32(), 1, 720); break;
                 case "hideAdult": s.HideAdult = v.GetBoolean(); break;
+                case "hideNoGuide": s.HideNoGuide = v.GetBoolean(); break;
                 case "hiddenChannels":
                     s.HiddenChannels = ChannelFilter.Clean(v.EnumerateArray().Select(e => e.GetString()));
                     break;
@@ -388,6 +389,9 @@ internal static class Routes
         bool hideAdult = SettingsService.Current.HideAdult;
         var channels = (all ?? []).Where(c => !(hideAdult && c.Adult)).ToList();
         var hidden = new HashSet<string>();
+        bool guideLoaded = account != null && GuideService.Peek(account) != null;
+        var noGuide = guideLoaded ? channels.Where(c => !ChannelFilter.HasGuide(c)).ToList() : [];
+        if (SettingsService.Current.HideNoGuide) foreach (var c in noGuide) hidden.Add(c.Id);
         var results = patterns.Select(p =>
         {
             var regex = ChannelFilter.ToRegex([p]);
@@ -396,7 +400,7 @@ internal static class Routes
             var names = hits.Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
             return new { pattern = p, count = hits.Count, names = names.Take(60), more = Math.Max(0, names.Count - 60) };
         }).ToList();
-        return new { loaded = all != null, total = hidden.Count, patterns = results };
+        return new { loaded = all != null, guideLoaded, noGuide = noGuide.Count, total = hidden.Count, patterns = results };
     }
 
     private static bool LooksAdult(string name)

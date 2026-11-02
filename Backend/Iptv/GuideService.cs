@@ -67,6 +67,9 @@ public static class GuideService
     // Changes whenever guide ids or logos were written into the channel list.
     public static int CatalogStamp(Account a) => Stamps.GetValueOrDefault(a.Id);
 
+    // The loaded guide, without loading it.
+    public static Guide? Peek(Account a) => Guides.GetValueOrDefault(a.Id);
+
     public static Guide? Get(Account a)
     {
         if (!Guides.TryGetValue(a.Id, out var guide))

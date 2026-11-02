@@ -153,6 +153,7 @@ export interface AppSettings {
   vodCacheHours: number;
   hideAdult: boolean;
   hiddenChannels: string[];
+  hideNoGuide: boolean;
   showVod: boolean;
   matchData: boolean;
   preferredAudioLanguage: string;
@@ -162,6 +163,8 @@ export interface AppSettings {
 
 export interface HiddenPreview {
   loaded: boolean;
+  guideLoaded: boolean;
+  noGuide: number;
   total: number;
   patterns: { pattern: string; count: number; names: string[]; more: number }[];
 }
