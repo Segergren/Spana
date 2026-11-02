@@ -553,8 +553,16 @@ function FullControls({
   const cast = useCast();
   const casting = !!cast.active;
   const { idle, poke } = useIdle();
+  const [overControls, setOverControls] = useState(false);
   const isLive = state.item?.kind === 'live';
-  const show = !idle || state.status !== 'playing' || casting;
+  const show = !idle || overControls || state.status !== 'playing' || casting;
+  const holdOpen = {
+    onPointerEnter: () => setOverControls(true),
+    onPointerLeave: () => {
+      setOverControls(false);
+      poke();
+    },
+  };
   const canZap = isLive && zapStore.get().length > 1;
 
   return (
@@ -640,35 +648,37 @@ function FullControls({
             )}
             {!casting && <VolumeControl state={state} />}
             <div className="flex-1" />
-            {!isLive && !casting && (
+            <div className="flex items-center gap-1" {...holdOpen}>
+              {!isLive && !casting && (
+                <TrackMenu
+                  icon={<Gauge size={20} />}
+                  title="Speed"
+                  tracks={[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({ id: r * 100, name: `${r}x` }))}
+                  current={Math.round(state.rate * 100)}
+                  onSelect={(id) => player.rate(id / 100)}
+                />
+              )}
+              <CastButton />
+              {!casting && <PlayerMenu />}
               <TrackMenu
-                icon={<Gauge size={20} />}
-                title="Speed"
-                tracks={[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({ id: r * 100, name: `${r}x` }))}
-                current={Math.round(state.rate * 100)}
-                onSelect={(id) => player.rate(id / 100)}
+                icon={<Languages size={20} />}
+                title="Audio"
+                tracks={state.audioTracks}
+                current={state.audioTrack}
+                onSelect={(id) => player.audio(id)}
               />
-            )}
-            <CastButton />
-            {!casting && <PlayerMenu />}
-            <TrackMenu
-              icon={<Languages size={20} />}
-              title="Audio"
-              tracks={state.audioTracks}
-              current={state.audioTrack}
-              onSelect={(id) => player.audio(id)}
-            />
-            <TrackMenu
-              icon={<Subtitles size={20} />}
-              title="Subtitles"
-              tracks={cast.active ? [] : state.subtitleTracks}
-              current={state.subtitleTrack}
-              onSelect={(id) => player.subtitle(id)}
-              allowOff
-            />
-            <IconBtn onClick={() => setFullscreen(!fullscreen)}>
-              {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-            </IconBtn>
+              <TrackMenu
+                icon={<Subtitles size={20} />}
+                title="Subtitles"
+                tracks={cast.active ? [] : state.subtitleTracks}
+                current={state.subtitleTrack}
+                onSelect={(id) => player.subtitle(id)}
+                allowOff
+              />
+              <IconBtn onClick={() => setFullscreen(!fullscreen)}>
+                {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+              </IconBtn>
+            </div>
           </div>
         </div>
       </div>
