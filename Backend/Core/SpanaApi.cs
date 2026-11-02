@@ -10,4 +10,7 @@ public static class SpanaApi
 
     // Rewrites a source art URL to the Spana art proxy.
     public static string Image(string url) => $"{Base}/art?u={Uri.EscapeDataString(url)}";
+
+    // Channel logos come centred on an empty square; the proxy trims them to the logo itself.
+    public static string Logo(string url) => Image(url) + "&trim=1";
 }

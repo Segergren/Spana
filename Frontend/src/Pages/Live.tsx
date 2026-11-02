@@ -332,6 +332,7 @@ export default function Live({ categoryId }: { categoryId?: string }) {
               logoAlt={c.icon}
               now={c.epgId ? guideNow?.[c.epgId] : undefined}
               className="w-full"
+              smallLogo
               onClick={() => {
                 void playLive(c, channels);
                 go({ name: 'player' });

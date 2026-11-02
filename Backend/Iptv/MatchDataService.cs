@@ -202,7 +202,7 @@ public static class MatchDataService
                     SaveSnapshot("tvnu", pages.Select(p => ($"{p.date}-{p.page}", p.body)));
                     var logos = new Dictionary<string, string>(_channelLogos, StringComparer.Ordinal);
                     foreach (var m in list)
-                        if (m.Channel != null && m.ChannelLogo != null) logos.TryAdd(SportService.ChannelKey(m.Channel), SpanaApi.Image(m.ChannelLogo + "?width=200&quality=80"));
+                        if (m.Channel != null && m.ChannelLogo != null) logos.TryAdd(SportService.ChannelKey(m.Channel), SpanaApi.Logo(m.ChannelLogo + "?width=200&quality=80"));
                     _channelLogos = logos;
                     Learn();
                     Log.Information("sport schedule: {Count} events", list.Count);
@@ -237,7 +237,7 @@ public static class MatchDataService
                         string? name = c.Str("name");
                         var logo = c.Prop("themedLogo");
                         string? url = logo?.Prop("dark")?.Str("url") ?? logo?.Prop("light")?.Str("url");
-                        if (name != null && url != null) map[SportService.ChannelKey(name)] = SpanaApi.Image(url + "?width=200&quality=80");
+                        if (name != null && url != null) map[SportService.ChannelKey(name)] = SpanaApi.Logo(url + "?width=200&quality=80");
                         if (name != null && c.Str("slug") is { } slug) ChannelSlugs[SportService.ChannelKey(name)] = slug;
                     }
                     foreach (var (k, v) in _channelLogos) map.TryAdd(k, v);
@@ -256,11 +256,33 @@ public static class MatchDataService
     // Attaches the guide logos to the channels it knows; they are made for dark backgrounds and never dead links.
     public static void ApplyLogos(IEnumerable<CatalogItem> items)
     {
+        if (!Enabled) return;
+        ChannelArtService.EnsureLoaded();
         var logos = _channelLogos;
         if (logos.Count == 0) return;
         foreach (var item in items)
             if (item.IconAlt == null && OnTvNu(item) && logos.TryGetValue(SportService.ChannelKey(item.Name), out var url)) item.IconAlt = url;
     }
+
+    // A logo found in a channel's own schedule, for the many channels the short channel list leaves out.
+    public static void LearnLogo(string key, string url, bool notify = true)
+    {
+        var logos = _channelLogos;
+        if (logos.ContainsKey(key)) return;
+        _channelLogos = new Dictionary<string, string>(logos, StringComparer.Ordinal) { [key] = url };
+        if (notify && Interlocked.Exchange(ref _logoNotice, 1) == 0)
+        {
+            // Cards learn logos in bursts; the app reloads its channel list once for all of them.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                Interlocked.Exchange(ref _logoNotice, 0);
+                _ = MessageHub.Send("matchDataUpdated", new { });
+            });
+        }
+    }
+
+    private static int _logoNotice;
 
     // The channel list is Swedish; Danish "TV3" shares the name but not the schedule.
     public static bool OnTvNu(CatalogItem item) => item.Country is null or "se";
@@ -339,7 +361,7 @@ public static class MatchDataService
                         if (m.Channel != null && m.ChannelSlug != null) ChannelSlugs[SportService.ChannelKey(m.Channel)] = m.ChannelSlug;
                     foreach (var m in list)
                         if (m.Channel != null && m.ChannelLogo != null)
-                            _channelLogos.TryAdd(SportService.ChannelKey(m.Channel), SpanaApi.Image(m.ChannelLogo + "?width=200&quality=80"));
+                            _channelLogos.TryAdd(SportService.ChannelKey(m.Channel), SpanaApi.Logo(m.ChannelLogo + "?width=200&quality=80"));
                     TvNuReady.TrySetResult();
                 }
             }

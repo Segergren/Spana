@@ -12,6 +12,7 @@ export default function ChannelNowCard({
   now,
   onClick,
   className = 'w-64 shrink-0',
+  smallLogo = false,
 }: {
   channelId: string;
   name: string;
@@ -20,6 +21,7 @@ export default function ChannelNowCard({
   now?: GuideNow;
   onClick: () => void;
   className?: string;
+  smallLogo?: boolean;
 }) {
   const { data: art } = useQuery({
     queryKey: ['channelArt', channelId],
@@ -59,12 +61,12 @@ export default function ChannelNowCard({
               src={logo}
               altSrc={logoAlt}
               fit="contain"
-              className="h-full w-full object-[right_top] drop-shadow-[0_1px_2.5px_rgba(0,0,0,0.6)]"
-              frame={(img) => <div className="absolute right-3.5 top-3.5 h-14 w-32">{img}</div>}
+              className="h-auto max-h-16 w-full object-[right_top] drop-shadow-[0_1px_2.5px_rgba(0,0,0,0.6)]"
+              frame={(img) => <div className="absolute right-3.5 top-3.5 w-28">{img}</div>}
             />
           </>
         ) : (
-          <div className="flex h-full items-center justify-center p-8">
+          <div className={`flex h-full items-center justify-center ${smallLogo ? 'px-16 py-12' : 'p-8'}`}>
             <Art src={logo} altSrc={logoAlt} fit="contain" className="h-full w-full" />
           </div>
         )}

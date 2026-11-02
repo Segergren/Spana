@@ -25,12 +25,13 @@ public sealed class ChannelArt
 public static class ChannelArtService
 {
     private sealed record Broadcast(string Id, string Title, long Start, long End);
-    private sealed record Schedule(DateTimeOffset At, List<Broadcast> Items);
+    private sealed record Schedule(DateTimeOffset At, List<Broadcast> Items, string? Logo);
 
     private static readonly TimeZoneInfo Stockholm = FindZone();
     private static readonly ConcurrentDictionary<string, string?> Slugs = new();          // channel key -> source slug (null = none)
     private static readonly ConcurrentDictionary<string, Schedule> Schedules = new();     // slug|date -> broadcasts
     private static readonly ConcurrentDictionary<string, string?> Images = new();         // broadcast id -> image url
+    private static readonly ConcurrentDictionary<string, string> Logos = new();          // channel key -> logo url
     private static readonly ConcurrentDictionary<string, Lazy<Task>> InFlight = new();
     private static readonly SemaphoreSlim Gate = new(4, 4);
     private static readonly string CacheFile = Path.Combine(Storage.CacheRoot, "channel-art.json");
@@ -40,6 +41,7 @@ public static class ChannelArtService
     {
         public Dictionary<string, string?> Slugs { get; set; } = new();
         public Dictionary<string, string?> Images { get; set; } = new();
+        public Dictionary<string, string> Logos { get; set; } = new();
     }
 
     private static TimeZoneInfo FindZone()
@@ -70,6 +72,11 @@ public static class ChannelArtService
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var schedule = await ScheduleAsync(slug, Today(now));
         if (schedule == null) return new ChannelArt();
+        if (schedule.Logo != null && Logos.TryAdd(key, schedule.Logo))
+        {
+            MatchDataService.LearnLogo(key, schedule.Logo);
+            Save();
+        }
 
         var current = schedule.Items.FirstOrDefault(b => b.Start <= now && b.End > now);
         var next = schedule.Items.FirstOrDefault(b => b.Start >= (current?.End ?? now));
@@ -148,7 +155,11 @@ public static class ChannelArtService
                     long start = times?.Long("startTime") ?? 0, end = times?.Long("endTime") ?? 0;
                     if (id != null && start > 0 && end > start) items.Add(new Broadcast(id, b.Str("title") ?? "", start, end));
                 }
-                Schedules[cacheKey] = new Schedule(DateTimeOffset.UtcNow, items.OrderBy(i => i.Start).ToList());
+                var themed = doc.RootElement.Prop("data")?.Prop("themedLogo");
+                var logo = themed?.Prop("dark") ?? themed?.Prop("light");
+                string? logoUrl = logo is { } l && l.Prop("isFallback")?.ValueKind != JsonValueKind.True ? l.Str("url") : null;
+                Schedules[cacheKey] = new Schedule(DateTimeOffset.UtcNow, items.OrderBy(i => i.Start).ToList(),
+                    logoUrl != null ? SpanaApi.Logo(logoUrl + "?width=200&quality=80") : null);
             }
             catch (HttpRequestException)
             {
@@ -206,6 +217,8 @@ public static class ChannelArtService
         return JsonDocument.Parse(await res.Content.ReadAsByteArrayAsync(cts.Token));
     }
 
+    public static void EnsureLoaded() => Load();
+
     private static void Load()
     {
         if (Interlocked.Exchange(ref _loaded, 1) == 1) return;
@@ -216,6 +229,11 @@ public static class ChannelArtService
             if (cache == null) return;
             foreach (var (k, v) in cache.Slugs) Slugs[k] = v;
             foreach (var (k, v) in cache.Images) Images[k] = v;
+            foreach (var (k, v) in cache.Logos)
+            {
+                Logos[k] = v;
+                MatchDataService.LearnLogo(k, v, notify: false);
+            }
         }
         catch (Exception ex)
         {
@@ -236,7 +254,7 @@ public static class ChannelArtService
             {
                 // Images only for recent broadcasts are worth keeping; the file stays small.
                 var images = Images.TakeLast(3000).ToDictionary(k => k.Key, v => v.Value);
-                Storage.Save(CacheFile, new DiskCache { Slugs = Slugs.ToDictionary(k => k.Key, v => v.Value), Images = images });
+                Storage.Save(CacheFile, new DiskCache { Slugs = Slugs.ToDictionary(k => k.Key, v => v.Value), Images = images, Logos = Logos.ToDictionary(k => k.Key, v => v.Value) });
             }
             catch (Exception ex)
             {
