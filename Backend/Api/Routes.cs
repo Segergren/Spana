@@ -75,6 +75,10 @@ internal static class Routes
                 await ApiServer.WriteJson(res, new { ok = true });
                 return;
 
+            case "hidden-preview" when method == "GET":
+                await ApiServer.WriteJson(res, HiddenPreview(req.QueryString.GetValues("p") ?? []));
+                return;
+
             case "search" when method == "GET":
                 await ApiServer.WriteJson(res, Search(req.QueryString["q"] ?? "", int.TryParse(req.QueryString["limit"], out var l) ? l : 40));
                 return;
@@ -218,7 +222,7 @@ internal static class Routes
             settings = new
             {
                 s.UserAgent, s.NetworkCachingMs, s.Volume, s.HardwareDecoding, s.AudioDelayMs, s.LiveCacheHours, s.VodCacheHours,
-                s.HideAdult, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel
+                s.HideAdult, s.HiddenChannels, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel
             },
             catalogs = active != null ? CatalogService.GetStatus(active) : []
         };
@@ -317,6 +321,9 @@ internal static class Routes
                 case "liveCacheHours": s.LiveCacheHours = Math.Clamp(v.GetInt32(), 1, 168); break;
                 case "vodCacheHours": s.VodCacheHours = Math.Clamp(v.GetInt32(), 1, 720); break;
                 case "hideAdult": s.HideAdult = v.GetBoolean(); break;
+                case "hiddenChannels":
+                    s.HiddenChannels = ChannelFilter.Clean(v.EnumerateArray().Select(e => e.GetString()));
+                    break;
                 case "matchData": s.MatchData = v.GetBoolean(); break;
                 case "showVod":
                     s.ShowVod = v.GetBoolean();
@@ -341,7 +348,7 @@ internal static class Routes
         bool hideAdult = SettingsService.Current.HideAdult;
         if (kind == MediaKind.Live) MatchDataService.ApplyLogos(snap.Items);
         // The leading version changes whenever cached items get new names or fields.
-        string etag = $"\"v2-{account.Id}-{snap.FetchedAt.ToUnixTimeMilliseconds()}-{hideAdult}-{snap.Items.Count(i => i.IconAlt != null)}-{GuideService.CatalogStamp(account)}\"";
+        string etag = $"\"v2-{account.Id}-{snap.FetchedAt.ToUnixTimeMilliseconds()}-{hideAdult}-{ChannelFilter.Stamp}-{snap.Items.Count(i => i.IconAlt != null)}-{GuideService.CatalogStamp(account)}\"";
         if (req.Headers["If-None-Match"] == etag)
         {
             res.StatusCode = 304;
@@ -351,9 +358,17 @@ internal static class Routes
         res.Headers["Cache-Control"] = "no-cache";
 
         if (kind == MediaKind.Live) MatchDataService.ApplyLogos(snap.Items);
-        var items = hideAdult ? snap.Items.Where(i => !i.Adult).ToList() : snap.Items;
+        bool live = kind == MediaKind.Live;
+        var items = snap.Items.Where(i => !ChannelFilter.Hidden(i, live)).ToList();
         var categories = snap.Categories.Where(c => c.Count > 0).ToList();
         if (hideAdult) categories = categories.Where(c => !LooksAdult(c.Name)).ToList();
+        if (live && ChannelFilter.Active)
+        {
+            // Categories whose every channel is hidden go too, and counts match what is left.
+            var counts = items.GroupBy(i => i.CategoryId).ToDictionary(g => g.Key, g => g.Count());
+            categories = categories.Where(c => counts.ContainsKey(c.Id))
+                .Select(c => new Category { Id = c.Id, Name = c.Name, Count = counts[c.Id] }).ToList();
+        }
         var allowed = categories.Select(c => c.Id).ToHashSet();
         await ApiServer.WriteJson(res, new
         {
@@ -362,6 +377,26 @@ internal static class Routes
             categories,
             items = items.Where(i => allowed.Contains(i.CategoryId))
         });
+    }
+
+    // What each pattern would hide, counted on the full channel list so hidden channels still show up here.
+    private static object HiddenPreview(string[] raw)
+    {
+        var patterns = ChannelFilter.Clean(raw);
+        var account = SettingsService.ActiveAccount;
+        var all = account != null ? CatalogService.GetIndex(account, MediaKind.Live)?.All : null;
+        bool hideAdult = SettingsService.Current.HideAdult;
+        var channels = (all ?? []).Where(c => !(hideAdult && c.Adult)).ToList();
+        var hidden = new HashSet<string>();
+        var results = patterns.Select(p =>
+        {
+            var regex = ChannelFilter.ToRegex([p]);
+            var hits = channels.Where(c => regex.IsMatch(c.Name)).ToList();
+            foreach (var c in hits) hidden.Add(c.Id);
+            var names = hits.Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+            return new { pattern = p, count = hits.Count, names = names.Take(60), more = Math.Max(0, names.Count - 60) };
+        }).ToList();
+        return new { loaded = all != null, total = hidden.Count, patterns = results };
     }
 
     private static bool LooksAdult(string name)
@@ -376,10 +411,8 @@ internal static class Routes
         string norm = CatalogService.Normalize(q);
         var tokens = norm.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length == 0) return new { live = Array.Empty<object>(), movie = Array.Empty<object>(), series = Array.Empty<object>(), programs = Array.Empty<object>() };
-        bool hideAdult = SettingsService.Current.HideAdult;
-
         List<CatalogItem> Top(MediaKind k) =>
-            CatalogService.GetIndex(account, k)?.Search(norm, tokens, hideAdult)
+            CatalogService.GetIndex(account, k)?.Search(norm, tokens)
                 .OrderByDescending(x => x.score).ThenByDescending(x => x.item.Added)
                 .Take(limit).Select(x => x.item).ToList() ?? new();
 

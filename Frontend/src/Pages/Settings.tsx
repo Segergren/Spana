@@ -4,6 +4,7 @@ import { Check, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { api, type AppSettings } from '../lib/api';
 import { useBootstrap } from '../Context/AppContext';
 import AddAccount from '../Components/AddAccount';
+import HiddenChannels from '../Components/HiddenChannels';
 import { enhanceEnabled, setEnhanceEnabled, subscribeEnhance } from '../lib/videoRenderer';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -49,7 +50,9 @@ export default function Settings() {
   const save = async (patch: Partial<AppSettings>) => {
     setDraft({ ...draft, ...patch });
     qc.setQueryData(['bootstrap'], await api.updateSettings(patch));
-    if ('hideAdult' in patch) qc.invalidateQueries({ queryKey: ['catalog'] });
+    if ('hideAdult' in patch || 'hiddenChannels' in patch) {
+      for (const key of ['catalog', 'sport', 'suggestions', 'search']) qc.invalidateQueries({ queryKey: [key] });
+    }
   };
 
   return (
@@ -262,6 +265,8 @@ export default function Settings() {
             </button>
           </Field>
         </Section>
+
+        <HiddenChannels value={draft.hiddenChannels ?? []} onChange={(hiddenChannels) => save({ hiddenChannels })} />
 
         <Section title="Network">
           <div>

@@ -152,11 +152,18 @@ export interface AppSettings {
   liveCacheHours: number;
   vodCacheHours: number;
   hideAdult: boolean;
+  hiddenChannels: string[];
   showVod: boolean;
   matchData: boolean;
   preferredAudioLanguage: string;
   preferredSubtitleLanguage: string;
   updateChannel: 'stable' | 'beta';
+}
+
+export interface HiddenPreview {
+  loaded: boolean;
+  total: number;
+  patterns: { pattern: string; count: number; names: string[]; more: number }[];
 }
 
 export interface Bootstrap {
@@ -366,6 +373,8 @@ export const api = {
   updateSettings: (patch: Partial<AppSettings>) => request<Bootstrap>('POST', '/api/settings', patch),
   catalog: (kind: 'live' | 'movie' | 'series') => request<Catalog>('GET', `/api/catalog/${kind}`),
   refresh: () => request('POST', '/api/refresh'),
+  hiddenPreview: (patterns: string[]) =>
+    request<HiddenPreview>('GET', `/api/hidden-preview?${patterns.map((p) => 'p=' + encodeURIComponent(p)).join('&')}`),
   search: (q: string, limit = 40) =>
     request<SearchResults>('GET', `/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   meta: (kind: MediaKind, id: string) => request<Meta>('GET', `/api/meta/${kind}/${id}`),

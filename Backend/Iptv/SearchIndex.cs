@@ -31,12 +31,12 @@ public sealed class SearchIndex
 
     public CatalogItem? Find(string id) => _byId.TryGetValue(id, out int i) ? _items[i] : null;
 
-    public IEnumerable<(CatalogItem item, double score)> Search(string normalizedQuery, string[] tokens, bool hideAdult)
+    public IEnumerable<(CatalogItem item, double score)> Search(string normalizedQuery, string[] tokens)
     {
         for (int i = 0; i < _items.Length; i++)
         {
             var item = _items[i];
-            if (hideAdult && item.Adult) continue;
+            if (ChannelFilter.Hidden(item, _kind == MediaKind.Live)) continue;
             double score = Score(_names[i], _words[i], normalizedQuery, tokens);
             if (score <= 0) continue;
             if (item.Rating is double r) score += Math.Min(r, 10) * 0.2;

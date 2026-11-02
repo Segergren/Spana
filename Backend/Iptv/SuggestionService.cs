@@ -267,7 +267,6 @@ public static class SuggestionService
         if (profile.Empty) return new();
 
         var streams = StreamsByEpg(a);
-        bool hideAdult = SettingsService.Current.HideAdult;
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         long horizon = now + TimeSpan.FromHours(10).Ticks / TimeSpan.TicksPerMillisecond;
 
@@ -307,7 +306,7 @@ public static class SuggestionService
             double hoursAway = live ? 0 : (p.Start - now) / 3_600_000.0;
             score *= live ? 1.0 : Math.Max(0.45, 0.95 - hoursAway * 0.06);
 
-            var channel = PickChannel(channels, profile, hideAdult, excludeChannelId);
+            var channel = PickChannel(channels, profile, excludeChannelId);
             if (channel == null) continue;
 
             string key = parsed.Show + "|" + p.Start / 60000;
@@ -329,13 +328,13 @@ public static class SuggestionService
         return top;
     }
 
-    internal static CatalogItem? PickChannel(List<CatalogItem> channels, Profile profile, bool hideAdult, string? exclude)
+    internal static CatalogItem? PickChannel(List<CatalogItem> channels, Profile profile, string? exclude)
     {
         CatalogItem? pick = null;
         double pickScore = double.MinValue;
         foreach (var c in channels)
         {
-            if (hideAdult && c.Adult) continue;
+            if (ChannelFilter.Hidden(c)) continue;
             double s = profile.Channels.GetValueOrDefault(c.Id) * 10;
             // Quality and stream notes come out of the name when the catalog is loaded.
             if (c.Quality >= 720) s += 1;
@@ -360,7 +359,6 @@ public static class SuggestionService
         var guide = GuideService.Get(a);
         if (guide == null || tokens.Length == 0) return new();
         var streams = StreamsByEpg(a);
-        bool hideAdult = SettingsService.Current.HideAdult;
         var profile = BuildProfile(a.Id);
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         long horizon = now + TimeSpan.FromHours(36).Ticks / TimeSpan.TicksPerMillisecond;
@@ -378,7 +376,7 @@ public static class SuggestionService
             }
             if (!all || !streams.TryGetValue(p.EpgId, out var channels)) continue;
             if (!seen.Add(title + "|" + p.Start / 60000)) continue;
-            var channel = PickChannel(channels, profile, hideAdult, null);
+            var channel = PickChannel(channels, profile, null);
             if (channel != null) results.Add((p, channel));
         }
         return results

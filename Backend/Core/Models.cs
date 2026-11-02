@@ -42,6 +42,8 @@ public sealed class Settings
     public int LiveCacheHours { get; set; } = 6;
     public int VodCacheHours { get; set; } = 24;
     public bool HideAdult { get; set; } = true;
+    // Channel names to hide, with * and ? wildcards.
+    public List<string> HiddenChannels { get; set; } = new();
     public bool ShowVod { get; set; }
     public bool MatchData { get; set; } = true;
     public string PreferredAudioLanguage { get; set; } = "";

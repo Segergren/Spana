@@ -161,7 +161,6 @@ public static partial class SportService
         var streams = SuggestionService.StreamsByEpg(a);
         var groups = CatalogService.CategoryNames(a, MediaKind.Live);
         var profile = SuggestionService.BuildProfile(a.Id);
-        bool hideAdult = SettingsService.Current.HideAdult;
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         long horizon = now + TimeSpan.FromHours(40).Ticks / TimeSpan.TicksPerMillisecond;
         long recent = now - AfterMatch;
@@ -185,7 +184,7 @@ public static partial class SportService
             if (sport == null && !(matchup && sportyChannel && LooksLikeTeams(parsed))) continue;
             if (sport != null && !matchup && !sportyChannel && !parsed.Live && !look.GuideSport) continue;
 
-            var channel = SuggestionService.PickChannel(channels, profile, hideAdult, null);
+            var channel = SuggestionService.PickChannel(channels, profile, null);
             if (channel == null) continue;
 
             bool mine = parsed.Teams.Any(t => profile.Teams.Any(i => ProgramTitle.TeamSimilarity(t, i.Team) >= 0.5));
@@ -208,8 +207,8 @@ public static partial class SportService
             };
         }
         var events = seen.Values.ToList();
-        AddTvNuEvents(a, events, profile, hideAdult, now, horizon);
-        AddNamedEvents(a, events, groups, hideAdult, now, horizon);
+        AddTvNuEvents(a, events, profile, now, horizon);
+        AddNamedEvents(a, events, groups, now, horizon);
         foreach (var e in events)
         {
             var parsed = e.Parsed ?? new ProgramTitle(e.Program.Title, e.Teams);
@@ -350,7 +349,7 @@ public static partial class SportService
         return map;
     }
 
-    private static void AddTvNuEvents(Account a, List<SportEvent> events, SuggestionService.Profile profile, bool hideAdult, long now, long horizon)
+    private static void AddTvNuEvents(Account a, List<SportEvent> events, SuggestionService.Profile profile, long now, long horizon)
     {
         if (!MatchDataService.Enabled) return;
         var byName = ChannelsByName(a);
@@ -363,7 +362,7 @@ public static partial class SportService
                     MatchDataService.FindIn([m], x.teams, x.start) != null))
                 continue;
             if (!byName.TryGetValue(CatalogService.Normalize(m.Channel), out var channels)) continue;
-            var channel = SuggestionService.PickChannel(channels, profile, hideAdult, null);
+            var channel = SuggestionService.PickChannel(channels, profile, null);
             if (channel == null) continue;
 
             bool hasTeams = m.Home.Core.Count > 0;
@@ -422,7 +421,7 @@ public static partial class SportService
     private static volatile NamedCache? _named;
 
     // Event channels without a guide that name a current event ("NFL 01ⓧ: Vikings vs Steelers (Sunday 9/28) 9:30AM ET").
-    private static void AddNamedEvents(Account a, List<SportEvent> events, Dictionary<string, string> groups, bool hideAdult, long now, long horizon)
+    private static void AddNamedEvents(Account a, List<SportEvent> events, Dictionary<string, string> groups, long now, long horizon)
     {
         var index = CatalogService.GetIndex(a, MediaKind.Live);
         if (index == null) return;
@@ -446,7 +445,7 @@ public static partial class SportService
         foreach (var (item, ev) in cache.List)
         {
             long end = ev.Start + 3 * 3_600_000;
-            if (end <= now - AfterMatch || ev.Start > horizon || (hideAdult && item.Adult)) continue;
+            if (end <= now - AfterMatch || ev.Start > horizon || ChannelFilter.Hidden(item)) continue;
             var parsed = new ProgramTitle(ev.Title);
             string context = CatalogService.Normalize(ev.Label + " " + groups.GetValueOrDefault(item.CategoryId, ""));
             bool na = item.Country is "us" or "ca" || context.Contains("usa");
