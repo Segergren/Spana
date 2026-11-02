@@ -11,6 +11,24 @@ function endOfDay(offsetDays: number) {
   return d.getTime();
 }
 
+/** The rows of the Sport page, top to bottom. */
+export function sportSections(data: SportEvent[] | undefined, sport = '') {
+  const list = (data ?? []).filter((e) => !sport || e.sport === sport);
+  const byRelevance = (a: SportEvent, b: SportEvent) => byPriority(a, b, now);
+  const now = Date.now();
+  const soon = now + 3 * 3_600_000;
+  const today = endOfDay(0);
+  const tomorrow = endOfDay(1);
+  return {
+    mine: list.filter((e) => e.mine && (!e.live || isLiveOrJustEnded(e))).slice(0, 40),
+    leagues: list.filter((e) => e.followed && !e.mine && (!e.live || isLiveOrJustEnded(e))).slice(0, 60),
+    live: list.filter((e) => isLiveOrJustEnded(e)).sort(byRelevance).slice(0, 80),
+    soon: list.filter((e) => !isLiveOrJustEnded(e) && !e.info?.finished && kickoffOf(e) > now && kickoffOf(e) < soon).sort(byRelevance).slice(0, 80),
+    today: list.filter((e) => e.program.start >= soon && e.program.start < today).slice(0, 80),
+    tomorrow: list.filter((e) => e.program.start >= today && e.program.start < tomorrow).slice(0, 80),
+  };
+}
+
 export default function Sport() {
   const { data, isLoading } = useSport();
   const [sport, setSport] = useState<string>('');
@@ -21,22 +39,7 @@ export default function Sport() {
     return [...m].sort((a, b) => b[1] - a[1]);
   }, [data]);
 
-  const sections = useMemo(() => {
-    const list = (data ?? []).filter((e) => !sport || e.sport === sport);
-    const byRelevance = (a: SportEvent, b: SportEvent) => byPriority(a, b, now);
-    const now = Date.now();
-    const soon = now + 3 * 3_600_000;
-    const today = endOfDay(0);
-    const tomorrow = endOfDay(1);
-    return {
-      mine: list.filter((e) => e.mine && (!e.live || isLiveOrJustEnded(e))).slice(0, 40),
-      leagues: list.filter((e) => e.followed && !e.mine && (!e.live || isLiveOrJustEnded(e))).slice(0, 60),
-      live: list.filter((e) => isLiveOrJustEnded(e)).sort(byRelevance).slice(0, 80),
-      soon: list.filter((e) => !isLiveOrJustEnded(e) && !e.info?.finished && kickoffOf(e) > now && kickoffOf(e) < soon).sort(byRelevance).slice(0, 80),
-      today: list.filter((e) => e.program.start >= soon && e.program.start < today).slice(0, 80),
-      tomorrow: list.filter((e) => e.program.start >= today && e.program.start < tomorrow).slice(0, 80),
-    };
-  }, [data, sport]);
+  const sections = useMemo(() => sportSections(data, sport), [data, sport]);
 
   if (isLoading)
     return (

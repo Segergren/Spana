@@ -34,8 +34,27 @@ function cleanTitle(title: string) {
   return title.replace(/\s*\|\s*[^|]+$/, '');
 }
 
+const IMAGE_W = 320;
+const TEAM_W = 64;
+const CHANNEL_W = 28;
+
+function cardImage(info: MatchInfo | undefined, matchup: boolean, program: ProgramView) {
+  // Match art first; a matchup without it shows the team logos rather than a generic guide still.
+  return info?.image ?? (matchup && (info?.homeLogo || info?.awayLogo) ? undefined : program.image);
+}
+
+/** The image URLs a card will load first, so they can be fetched before it is shown. */
+export function programCardImages(e: { program: ProgramView; channel: CatalogItem; teams?: string[]; info?: MatchInfo }) {
+  const matchup = e.teams?.length === 2;
+  const image = cardImage(e.info, matchup, e.program);
+  const urls = [img(logoOf(e.channel), CHANNEL_W)];
+  if (image) urls.push(img(image, IMAGE_W));
+  if (matchup) urls.push(img(e.info?.homeLogo, TEAM_W), img(e.info?.awayLogo, TEAM_W));
+  return urls;
+}
+
 function Logo({ src, size = 'h-5 w-5' }: { src?: string; size?: string }) {
-  const url = img(src, 64);
+  const url = img(src, TEAM_W);
   if (!url) return <span className={`${size} shrink-0`} />;
   return <SafeImg src={url} className={`${size} shrink-0 object-contain`} />;
 }
@@ -75,9 +94,8 @@ export default function ProgramCard({
   const sportPrefix = isSportWord(prefix);
   const rest = prefix ? title.slice(prefix.length + 2) : title;
   const subtitle = info?.tournament ?? [tag, sportPrefix ? undefined : prefix].filter(Boolean).join(' · ');
-  // Match art first; a matchup without it shows the team logos rather than a generic guide still.
   const [broken, setBroken] = useState<string>();
-  const wanted = info?.image ?? (matchup && (info?.homeLogo || info?.awayLogo) ? undefined : program.image);
+  const wanted = cardImage(info, !!matchup, program);
   // A dead image link falls back to the logos or the sport card instead of an empty frame.
   const image = wanted && wanted !== broken ? wanted : undefined;
 
@@ -111,7 +129,7 @@ export default function ProgramCard({
         {image ? (
           <Art
             src={image}
-            width={320}
+            width={IMAGE_W}
             onFail={() => setBroken(image)}
             className="h-full w-full transition-transform duration-300 group-hover:scale-[1.02]"
           />
@@ -136,7 +154,7 @@ export default function ProgramCard({
           <Art
             src={logoOf(channel)}
             altSrc={channel.icon}
-            width={28}
+            width={CHANNEL_W}
             fit="contain"
             className="h-full w-full"
             frame={(img) => <span className="flex h-5 w-7 shrink-0 items-center justify-center">{img}</span>}

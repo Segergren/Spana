@@ -1,7 +1,27 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, clock, type GuideNow } from '../lib/api';
+import { api, clock, img, type ChannelArt, type GuideNow } from '../lib/api';
 import { Art } from './Cards';
+
+export const channelArtQuery = (channelId: string) => ({
+  queryKey: ['channelArt', channelId],
+  queryFn: () => api.channelArt(channelId),
+  staleTime: 5 * 60_000,
+});
+
+const PROGRAM_W = 360;
+const LOGO_W = 300;
+const cornerWidth = (smallLogo: boolean) => (smallLogo ? 112 : 56);
+
+function programImage(art?: ChannelArt, now?: GuideNow) {
+  return art?.now?.image ?? (art?.now ? undefined : now?.image);
+}
+
+/** The image URLs a card will load first, so they can be fetched before it is shown. */
+export function channelCardImages(art: ChannelArt | undefined, now: GuideNow | undefined, logo: string | undefined, smallLogo: boolean) {
+  const image = programImage(art, now);
+  return image ? [img(image, PROGRAM_W), img(logo, cornerWidth(smallLogo))] : [img(logo, LOGO_W)];
+}
 
 // What is on a channel right now, with the programme image from the match data or the guide when there is one.
 export default function ChannelNowCard({
@@ -23,12 +43,7 @@ export default function ChannelNowCard({
   className?: string;
   smallLogo?: boolean;
 }) {
-  const { data: art } = useQuery({
-    queryKey: ['channelArt', channelId],
-    queryFn: () => api.channelArt(channelId),
-    staleTime: 5 * 60_000,
-    refetchInterval: 5 * 60_000,
-  });
+  const { data: art } = useQuery({ ...channelArtQuery(channelId), refetchInterval: 5 * 60_000 });
   const current = art?.now;
   const title = current?.title ?? now?.title ?? now?.next ?? 'No guide information';
   const start = current?.start ?? now?.start;
@@ -40,7 +55,7 @@ export default function ChannelNowCard({
       : undefined;
   const pct = start && end ? Math.min(100, ((Date.now() - start) / (end - start)) * 100) : 0;
   const [broken, setBroken] = useState<string>();
-  const wanted = current?.image ?? (current ? undefined : now?.image);
+  const wanted = programImage(art, now);
   // A dead programme image falls back to the channel logo.
   const image = wanted && wanted !== broken ? wanted : undefined;
 
@@ -54,14 +69,14 @@ export default function ChannelNowCard({
           <>
             <Art
               src={image}
-              width={360}
+              width={PROGRAM_W}
               onFail={() => setBroken(image)}
               className="h-full w-full transition-transform duration-300 group-hover:scale-[1.02]"
             />
             <Art
               src={logo}
               altSrc={logoAlt}
-              width={smallLogo ? 112 : 56}
+              width={cornerWidth(smallLogo)}
               fit="contain"
               className={`h-auto w-full object-[right_top] drop-shadow-[0_1px_2.5px_rgba(0,0,0,0.6)] ${smallLogo ? 'max-h-16' : 'max-h-7'}`}
               frame={(img) => <div className={`absolute ${smallLogo ? 'right-3.5 top-3.5 w-28' : 'right-2.5 top-2.5 w-14'}`}>{img}</div>}
@@ -72,7 +87,7 @@ export default function ChannelNowCard({
             <Art
               src={logo}
               altSrc={logoAlt}
-              width={300}
+              width={LOGO_W}
               fit="contain"
               className={`h-full w-full ${smallLogo ? 'max-h-[130px] max-w-[300px]' : ''}`}
             />

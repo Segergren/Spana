@@ -19,6 +19,7 @@ import Sport from './Pages/Sport';
 import Categories from './Pages/Categories';
 import { player } from './lib/api';
 import { zap } from './lib/stores';
+import { useIdlePrefetch } from './lib/prefetch';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 const pageVariants = {
@@ -138,6 +139,7 @@ export default function App() {
   const { data: boot, isLoading, error } = useBootstrap();
   const { route, direction } = useNav();
   useShortcuts();
+  useIdlePrefetch();
 
   if (isLoading)
     return (

@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDownToLine, ArrowLeft, Check, ChevronDown, Loader2, RefreshCw, Search, Settings, X } from 'lucide-react';
 import { api } from '../lib/api';
+import { prefetchTab } from '../lib/prefetch';
 import { LogoMark, Wordmark } from './Logo';
 import { useBootstrap, useNav, useShowVod, useUpdate, type Route } from '../Context/AppContext';
 
@@ -35,6 +36,7 @@ const VOD_TABS: Tab[] = [
 
 export function TopBar() {
   const { route, go, back, canGoBack } = useNav();
+  const qc = useQueryClient();
   const showVod = useShowVod();
   const tabs = showVod ? [...LIVE_TABS, ...VOD_TABS] : LIVE_TABS;
 
@@ -59,6 +61,7 @@ export function TopBar() {
             <button
               key={tab.label}
               onClick={() => go(tab.route)}
+              onPointerEnter={() => prefetchTab(qc, tab.route.name)}
               className={`relative h-9 rounded-full px-4 text-sm font-medium transition-colors ${
                 active ? 'text-base-300' : 'text-white/70 hover:text-white'
               }`}

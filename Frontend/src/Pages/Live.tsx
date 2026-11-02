@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, Loader2, Search, Tv } from 'lucide-react';
-import { type CatalogItem } from '../lib/api';
+import { type Catalog, type CatalogItem, type GuideNow, type Library } from '../lib/api';
 import { useCatalog, useGuideNow, useLibrary, useNav } from '../Context/AppContext';
 import { GENRES, genreCounts, genreMatcher } from '../lib/genres';
 import { Empty, logoOf } from '../Components/Cards';
@@ -10,7 +11,6 @@ import { playLive } from '../lib/stores';
 const ALL = '_all';
 const FAV = '_fav';
 const RECENT = '_recent';
-const PAGE = 48;
 
 // The backend takes these out of names; they stay here for catalogs cached before it did.
 const VARIANT_WORDS = new Set(['hd', 'fhd', 'sd', 'hevc', 'h265', '50fps']);
@@ -194,6 +194,117 @@ function store(key: string, value: string) {
   }
 }
 
+const byIdCache = new WeakMap<CatalogItem[], Map<string, CatalogItem>>();
+
+/** The channels the TV page lists for a group and filter, best version of each unless alternatives are shown. */
+export function liveChannels(data: Catalog | undefined, lib: Library | undefined, cat: string, filter: string, alternatives: boolean) {
+  if (!data) return [];
+  const cacheable = !filter && cat !== FAV && cat !== RECENT;
+  const key = `${cat}|${alternatives}`;
+  const cached = cacheable ? listCache.get(data.items)?.get(key) : undefined;
+  if (cached) return cached;
+  let byId = byIdCache.get(data.items);
+  if (!byId) byIdCache.set(data.items, (byId = new Map(data.items.map((i) => [i.id, i]))));
+  const isChannel = headingFilter(data.items);
+  let list: CatalogItem[];
+  const genre = cat.startsWith('g:') ? GENRES.find((g) => `g:${g.id}` === cat) : undefined;
+  const fromLibrary = (entries?: { kind: string; id: string }[]) =>
+    (entries ?? []).filter((f) => f.kind === 'live').map((f) => byId.get(f.id)).filter(Boolean) as CatalogItem[];
+  if (cat === FAV) list = fromLibrary(lib?.favorites);
+  else if (cat === RECENT) list = fromLibrary(lib?.history);
+  else if (genre) {
+    const matcher = genreMatcher(data.categories);
+    list = data.items.filter((i) => matcher(genre, i));
+  } else if (cat === ALL) list = data.items;
+  else list = data.items.filter((i) => i.categoryId === cat);
+  const tokens = words(filter);
+  list = list.filter((i) => isChannel(i) && tokens.every((t) => words(i.name).join(' ').includes(t)));
+  list = alternatives ? list : bestVersions(list);
+  if (cacheable) {
+    const m = listCache.get(data.items) ?? new Map<string, CatalogItem[]>();
+    m.set(key, list);
+    listCache.set(data.items, m);
+  }
+  return list;
+}
+
+/** The group and alternatives setting the TV page opens with. */
+export function storedLiveView() {
+  return { cat: readStored('spana.liveCat', ALL), alternatives: readStored('spana.liveAlternatives', '0') === '1' };
+}
+
+export const LIVE_COLUMNS = 4;
+const GRID_GAP = 16;
+
+// Only the rows near the viewport are in the DOM; the page's own scroll container drives it.
+function ChannelGrid({
+  channels,
+  label,
+  guideNow,
+  onPlay,
+}: {
+  channels: CatalogItem[];
+  label: (c: CatalogItem) => string;
+  guideNow?: Record<string, GuideNow>;
+  onPlay: (c: CatalogItem) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scroller, setScroller] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(0);
+  const [offset, setOffset] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setScroller(el.closest<HTMLElement>('.overflow-y-auto'));
+    setOffset(el.offsetTop);
+    const ro = new ResizeObserver(() => {
+      setWidth(el.clientWidth);
+      setOffset(el.offsetTop);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const cardW = (width - 64 - GRID_GAP * (LIVE_COLUMNS - 1)) / LIVE_COLUMNS;
+  const rows = Math.ceil(channels.length / LIVE_COLUMNS);
+  const virt = useVirtualizer({
+    count: rows,
+    getScrollElement: () => scroller,
+    estimateSize: () => Math.round((cardW * 9) / 16) + 86 + GRID_GAP,
+    overscan: 2,
+    scrollMargin: offset,
+  });
+
+  return (
+    <div ref={ref} className="relative" style={{ height: virt.getTotalSize() }}>
+      {virt.getVirtualItems().map((row) => (
+        <div
+          key={row.key}
+          data-index={row.index}
+          ref={virt.measureElement}
+          className="absolute inset-x-8 top-0 grid grid-cols-4 gap-4 pb-4"
+          style={{ transform: `translateY(${row.start - virt.options.scrollMargin}px)` }}
+        >
+          {channels.slice(row.index * LIVE_COLUMNS, (row.index + 1) * LIVE_COLUMNS).map((c) => (
+            <ChannelNowCard
+              key={c.id}
+              channelId={c.id}
+              name={label(c)}
+              logo={logoOf(c)}
+              logoAlt={c.icon}
+              now={c.epgId ? guideNow?.[c.epgId] : undefined}
+              className="w-full"
+              smallLogo
+              onClick={() => onPlay(c)}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Live({ categoryId }: { categoryId?: string }) {
   const { go } = useNav();
   const { data, isLoading } = useCatalog('live');
@@ -202,8 +313,6 @@ export default function Live({ categoryId }: { categoryId?: string }) {
   const [cat, setCat] = useState(categoryId ?? readStored('spana.liveCat', ALL));
   const [filter, setFilter] = useState('');
   const [alternatives, setAlternatives] = useState(readStored('spana.liveAlternatives', '0') === '1');
-  const [shown, setShown] = useState(PAGE);
-  const more = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (categoryId) setCat(categoryId);
@@ -211,61 +320,19 @@ export default function Live({ categoryId }: { categoryId?: string }) {
 
   useEffect(() => store('spana.liveCat', cat), [cat]);
   useEffect(() => store('spana.liveAlternatives', alternatives ? '1' : '0'), [alternatives]);
-  useEffect(() => setShown(PAGE), [cat, filter, alternatives]);
 
-  const byId = useMemo(() => new Map(data?.items.map((i) => [i.id, i]) ?? []), [data]);
-  const matcher = useMemo(() => genreMatcher(data?.categories ?? []), [data]);
-  const isChannel = useMemo(() => headingFilter(data?.items ?? []), [data]);
   const genres = useMemo(() => {
     if (!data) return [];
     const counts = genreCounts(data.categories, data.items);
     return GENRES.filter((g) => (counts.get(g.id) ?? 0) > 0);
   }, [data]);
 
-  const channels = useMemo(() => {
-    const cacheable = !!data && !filter && cat !== FAV && cat !== RECENT;
-    const key = `${cat}|${alternatives}`;
-    const cached = cacheable ? listCache.get(data.items)?.get(key) : undefined;
-    if (cached) return cached;
-    let list: CatalogItem[];
-    const genre = cat.startsWith('g:') ? GENRES.find((g) => `g:${g.id}` === cat) : undefined;
-    const fromLibrary = (entries?: { kind: string; id: string }[]) =>
-      (entries ?? []).filter((f) => f.kind === 'live').map((f) => byId.get(f.id)).filter(Boolean) as CatalogItem[];
-    if (cat === FAV) list = fromLibrary(lib?.favorites);
-    else if (cat === RECENT) list = fromLibrary(lib?.history);
-    else if (genre) list = (data?.items ?? []).filter((i) => matcher(genre, i));
-    else if (cat === ALL) list = data?.items ?? [];
-    else list = (data?.items ?? []).filter((i) => i.categoryId === cat);
-    const tokens = words(filter);
-    list = list.filter(
-      (i) => isChannel(i) && tokens.every((t) => words(i.name).join(' ').includes(t)),
-    );
-    list = alternatives ? list : bestVersions(list);
-    if (cacheable) {
-      const m = listCache.get(data.items) ?? new Map<string, CatalogItem[]>();
-      m.set(key, list);
-      listCache.set(data.items, m);
-    }
-    return list;
-  }, [data, cat, filter, lib, byId, matcher, alternatives, isChannel]);
+  const channels = useMemo(() => liveChannels(data, lib, cat, filter, alternatives), [data, lib, cat, filter, alternatives]);
   const label = useMemo(() => {
     let f = labelCache.get(channels);
     if (!f) labelCache.set(channels, (f = displayNames(channels, alternatives, data?.home)));
     return f;
   }, [channels, alternatives, data?.home]);
-
-  useEffect(() => {
-    const el = more.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) setShown((n) => Math.min(n + PAGE, channels.length));
-      },
-      { rootMargin: '600px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [channels.length, shown]);
 
   if (isLoading)
     return (
@@ -288,7 +355,6 @@ export default function Live({ categoryId }: { categoryId?: string }) {
   );
 
   const isGroup = cat !== ALL && cat !== FAV && cat !== RECENT && !cat.startsWith('g:');
-  const visible = channels.slice(0, shown);
 
   return (
     <div className="flex flex-col gap-6 pb-16">
@@ -345,26 +411,16 @@ export default function Live({ categoryId }: { categoryId?: string }) {
       {channels.length === 0 ? (
         <div className="px-8 py-16 text-center text-sm text-muted">No channels here.</div>
       ) : (
-        <div className="grid grid-cols-4 gap-4 px-8">
-          {visible.map((c) => (
-            <ChannelNowCard
-              key={c.id}
-              channelId={c.id}
-              name={label(c)}
-              logo={logoOf(c)}
-              logoAlt={c.icon}
-              now={c.epgId ? guideNow?.[c.epgId] : undefined}
-              className="w-full"
-              smallLogo
-              onClick={() => {
-                void playLive(c, channels);
-                go({ name: 'player' });
-              }}
-            />
-          ))}
-        </div>
+        <ChannelGrid
+          channels={channels}
+          label={label}
+          guideNow={guideNow}
+          onPlay={(c) => {
+            void playLive(c, channels);
+            go({ name: 'player' });
+          }}
+        />
       )}
-      {shown < channels.length && <div ref={more} className="h-px" />}
     </div>
   );
 }
