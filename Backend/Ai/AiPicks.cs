@@ -143,20 +143,33 @@ public static partial class AiPicks
     private static List<Suggestion> Current(Account a, List<Suggestion> picks, long now)
     {
         var sport = new Dictionary<string, SportEvent>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in FeedCache.Sport(a)) sport.TryAdd(e.Channel.EpgId + "|" + e.Program.Start, e);
+        foreach (var e in FeedCache.Sport(a))
+        {
+            sport.TryAdd(e.Channel.EpgId + "|" + e.Program.Start, e);
+            foreach (var alt in e.Alternatives ?? []) sport.TryAdd(alt.Channel.EpgId + "|" + alt.Program.Start, e);
+        }
         var list = new List<Suggestion>();
         foreach (var p in picks)
         {
-            if (p.Program.End <= now || ChannelFilter.Hidden(p.Channel)) continue;
-            var info = sport.TryGetValue(p.Channel.EpgId + "|" + p.Program.Start, out var e) ? e.Info : p.Info;
+            // A pick made on another channel follows the match to the one in the viewer's language.
+            var e = sport.GetValueOrDefault(p.Channel.EpgId + "|" + p.Program.Start);
+            var channel = e?.Channel ?? p.Channel;
+            var program = e == null || e.Channel.Id == p.Channel.Id ? p.Program
+                : p.Teams.Count == 2 ? e.Program
+                : new ProgramView { Title = p.Program.Title, Description = e.Program.Description, Start = e.Program.Start, End = e.Program.End, Image = e.Program.Image, Replay = e.Program.Replay };
+            if (program.End <= now || ChannelFilter.Hidden(channel) || Foreign(channel, e?.Mine ?? false)) continue;
+            if (e != null) program.Replay = e.Program.Replay;
+            var info = e?.Info ?? p.Info;
             if (info is { Finished: true } && now - (info.FinishedAt ?? 0) >= 20 * 60_000) continue;
+            if (list.Any(x => x.Channel.Id == channel.Id && x.Program.Start == program.Start)) continue;
             list.Add(new Suggestion
             {
-                Program = p.Program, Channel = p.Channel, Reason = p.Reason, Teams = p.Teams, Match = p.Match, Info = info,
-                Live = p.Program.Start <= now
+                Program = program, Channel = channel, Reason = p.Reason, Teams = e?.Teams ?? p.Teams, Match = p.Match, Info = info,
+                Live = program.Start <= now, Language = Languages.Of(channel), Alternatives = e?.Alternatives
             });
         }
-        return list;
+        // What is on now leads; later games keep the AI's order after it.
+        return list.OrderByDescending(x => x.Program.Start <= now + 30 * 60_000).ToList();
     }
 
     private static void Start(Account a, Run run)
@@ -236,7 +249,8 @@ public static partial class AiPicks
             if (!byId.Remove(id, out var e)) continue;
             var program = title == null || e.Teams.Count == 2 ? e.Program : new ProgramView
             {
-                Title = title, Description = e.Program.Description, Start = e.Program.Start, End = e.Program.End, Image = e.Program.Image
+                Title = title, Description = e.Program.Description, Start = e.Program.Start, End = e.Program.End, Image = e.Program.Image,
+                Replay = e.Program.Replay
             };
             live.Add(new Suggestion
             {
@@ -284,7 +298,9 @@ public static partial class AiPicks
         var sportTitles = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in sport)
         {
+            if (Foreign(e.Channel, e.Mine)) continue;
             if (!taken.Add(e.Channel.EpgId + "|" + e.Program.Start)) continue;
+            foreach (var alt in e.Alternatives ?? []) taken.Add(alt.Channel.EpgId + "|" + alt.Program.Start);
             // Event channels repeat "Football: Allsvenskan" all day.
             if (e.Teams.Count < 2 && !sportTitles.Add(CatalogService.Normalize(e.Program.Title))) continue;
             string label = e.League is { Length: > 0 } l ? $"{e.Sport}, {l}" : e.Sport;
@@ -317,7 +333,7 @@ public static partial class AiPicks
             double rank = profile.EpgChannels.GetValueOrDefault(p.EpgId) * 100 - channel.Num * 0.01;
             others.Add((new Entry
             {
-                Program = new ProgramView { Title = title, Description = p.Description, Start = p.Start, End = p.End, Image = p.Image },
+                Program = new ProgramView { Title = title, Description = p.Description, Start = p.Start, End = p.End, Image = p.Image, Replay = p.Repeat == true },
                 Channel = channel, Label = p.Category
             }, rank));
         }
@@ -329,6 +345,9 @@ public static partial class AiPicks
         }
         return list;
     }
+
+    // Only in a language the viewer does not speak; still worth it for their own team.
+    private static bool Foreign(CatalogItem channel, bool mine) => Languages.Rank(channel) >= 3 && !mine;
 
     private static string SportNotes(SportEvent e)
     {
@@ -342,6 +361,8 @@ public static partial class AiPicks
         else if (e.Teams.Count < 2)
             notes.Add("no specific match named");
         if (e.Prominence >= 3) notes.Add("major league");
+        if (e.Program.Replay) notes.Add("replay");
+        if (Languages.Rank(e.Channel) == 2) notes.Add("commentary language unknown");
         return string.Join(", ", notes);
     }
 

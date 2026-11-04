@@ -575,7 +575,7 @@ public static partial class PlaylistGuide
                     long end = GuideService.ParseTime(reader.GetAttribute("stop"));
                     if (start == 0 || end <= start) continue;
 
-                    var (title, desc, category, icon) = GuideService.ReadDetails(reader);
+                    var (title, desc, category, icon, repeat) = GuideService.ReadDetails(reader);
                     if (string.IsNullOrWhiteSpace(title)) continue;
                     title = Share(pool, title.Trim())!;
                     if (Placeholders.Contains(title)) continue;
@@ -585,7 +585,7 @@ public static partial class PlaylistGuide
                     foreach (var t in list)
                     {
                         if (end + t.Shift < cutoff || start + t.Shift > horizon) continue;
-                        var p = new Programme { EpgId = t.Key, Start = start + t.Shift, End = end + t.Shift, Title = title, Description = desc, Category = category, Image = image };
+                        var p = new Programme { EpgId = t.Key, Start = start + t.Shift, End = end + t.Shift, Title = title, Description = desc, Category = category, Image = image, Repeat = repeat };
                         if (!guide.ByChannel.TryGetValue(t.Key, out var progs)) guide.ByChannel[t.Key] = progs = new();
                         progs.Add(p);
                         guide.All.Add(p);

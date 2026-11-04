@@ -18,9 +18,13 @@ public sealed class SportEvent
     public int Prominence { get; set; }
     public string? Reason { get; set; }
     public MatchInfo? Info { get; set; }
+    public string? Language { get; set; }
+    public List<Broadcast>? Alternatives { get; set; }
     internal ProgramTitle? Parsed { get; set; }
     internal string? LeagueKey { get; set; }
     internal bool NorthAmerica { get; set; }
+    // The guide said whether this is live or a replay, so kick-off times do not override it.
+    internal bool GuideMarked { get; set; }
 }
 
 // Sport schedule built from the guide: matches and events on sport channels, live now and coming up.
@@ -166,9 +170,17 @@ public static partial class SportService
         long recent = now - AfterMatch;
 
         var seen = new Dictionary<string, SportEvent>();
+        // Matches the guide showed in the last hours, so a later showing is known as a replay once the original is over.
+        var shown = new List<(long start, ProgramTitle.TeamKey a, ProgramTitle.TeamKey b)>();
         foreach (var p in guide.All)
         {
-            if (p.End <= recent || p.Start > horizon) continue;
+            if (p.End <= recent)
+            {
+                if (p.Start > now - PastWindow && (p.Title.Contains(" - ") || p.Title.Contains(" vs")) && p.Parsed.Teams.Count == 2)
+                    shown.Add((p.Start, p.Parsed.Teams[0], p.Parsed.Teams[1]));
+                continue;
+            }
+            if (p.Start > horizon) continue;
             if (!streams.TryGetValue(p.EpgId, out var channels)) continue;
             string title = ResolveTitle(p, channels);
             var look = Inspect(p, title, now);
@@ -189,13 +201,28 @@ public static partial class SportService
 
             bool mine = parsed.Teams.Any(t => profile.Teams.Any(i => ProgramTitle.TeamSimilarity(t, i.Team) >= 0.5));
             string key = parsed.Show + "|" + p.Start / 60000;
-            // The same show on a foreign channel gives way to one from the viewer's country.
-            if (seen.TryGetValue(key, out var have) && (IsHome(have.Channel) || !IsHome(channel))) continue;
+            var program = new ProgramView
+            {
+                Title = CleanTitle(title), Description = p.Description, Start = p.Start, End = p.End, Image = p.Image, Replay = p.Repeat == true && !parsed.Live
+            };
+            // The same show in a language the viewer understands better takes over; the other stays as an alternative.
+            List<Broadcast>? alternatives = null;
+            if (seen.TryGetValue(key, out var have))
+            {
+                if ((have.Program.Replay, Languages.Rank(have.Channel)).CompareTo((program.Replay, Languages.Rank(channel))) <= 0)
+                {
+                    (have.Alternatives ??= new()).Add(Languages.Of(channel, program));
+                    continue;
+                }
+                alternatives = [Languages.Of(have.Channel, have.Program), .. have.Alternatives ?? []];
+            }
             var league = Leagues.Find(parsed.Category, title, look.GuideCategory);
             seen[key] = new SportEvent
             {
-                Program = new ProgramView { Title = CleanTitle(title), Description = p.Description, Start = p.Start, End = p.End, Image = p.Image },
+                Program = program,
                 Channel = channel,
+                Alternatives = alternatives,
+                GuideMarked = p.Repeat != null || parsed.Live,
                 Live = p.Start <= now,
                 Sport = sport ?? GuessFromTeams(parsed) ?? "Other",
                 League = league?.name ?? League(title),
@@ -207,6 +234,11 @@ public static partial class SportService
             };
         }
         var events = seen.Values.ToList();
+        foreach (var e in events)
+        {
+            if (e.GuideMarked || e.Parsed is not { Teams.Count: 2 } t) continue;
+            if (shown.Any(s => e.Program.Start - s.start > RerunAfter && SameMatch(s.a, s.b, t.Teams[0], t.Teams[1]))) e.Program.Replay = true;
+        }
         AddTvNuEvents(a, events, profile, now, horizon);
         AddNamedEvents(a, events, groups, now, horizon);
         foreach (var e in events)
@@ -214,14 +246,19 @@ public static partial class SportService
             var parsed = e.Parsed ?? new ProgramTitle(e.Program.Title, e.Teams);
             if (EspnService.LeagueFor(e.LeagueKey, e.Sport, parsed.Teams.Count == 2, e.NorthAmerica) is { } espn) EspnService.Want(espn);
             e.Info ??= MatchDataService.Lookup(parsed.Teams, parsed.TeamNames, e.Program.Start, e.Sport);
+            if (!e.GuideMarked && e.Info?.Kickoff is long kick && e.Program.Start - kick > RerunAfter) e.Program.Replay = true;
             if (e.Sport is "Other" or "Sport" && e.Info?.Sport != null) e.Sport = e.Info.Sport;
             var ctx = MatchDataService.Context(parsed, e.Program.Title, e.Program.Start);
+            if (!e.GuideMarked && e.Teams.Count < 2 && Leagues.IsLeagueOnly(e.Program.Title) &&
+                MatchDataService.LeagueReplay(ctx.League, e.Program.Start, e.Program.End) == true)
+                e.Program.Replay = true;
             var rel = SuggestionService.Score(profile, parsed, ctx, e.Sport is "Other" or "Sport" ? ctx.Sport : e.Sport);
             double quality = MatchDataService.Quality(e.Info);
             // Without any viewing history the quality alone orders the list, as a small value below every real interest.
             e.Relevance = Math.Round(rel.Score > 0 ? rel.Score * quality : (quality - 0.6) * 0.1, 3);
             e.Reason = rel.Score > 0 ? rel.Reason : null;
             if (rel.Score <= 0) e.Relevance = Math.Min(e.Relevance, 0.09);
+            if (e.Program.Replay) e.Relevance = Math.Round(e.Relevance * 0.3, 3);
             e.Mine = rel.Kind == "team";
             e.Tier = rel.Score <= 0 ? 0 : rel.Kind switch { "team" => 5, "show" => 4, "league" => 4, "top" => 3, "country" => 2, _ => 1 };
             e.Followed = rel.Kind is "team" or "league" || (ctx.League != null && profile.Leagues.ContainsKey(ctx.League));
@@ -235,9 +272,10 @@ public static partial class SportService
 
     // The same match often appears on several channels under slightly different names; keep the best one.
     // A broadcast that starts after a match would normally be over is a repeat.
-    private const long RerunAfter = 100 * 60_000;
+    internal const long RerunAfter = 100 * 60_000;
+    private const long PastWindow = 12 * 3_600_000L;
 
-    private static bool SamePair(ProgramTitle.TeamKey a1, ProgramTitle.TeamKey b1, ProgramTitle.TeamKey a2, ProgramTitle.TeamKey b2) =>
+    internal static bool SamePair(ProgramTitle.TeamKey a1, ProgramTitle.TeamKey b1, ProgramTitle.TeamKey a2, ProgramTitle.TeamKey b2) =>
         Math.Max(Math.Min(ProgramTitle.TeamSimilarity(a1, a2), ProgramTitle.TeamSimilarity(b1, b2)),
                  Math.Min(ProgramTitle.TeamSimilarity(a1, b2), ProgramTitle.TeamSimilarity(b1, a2))) >= 0.5;
 
@@ -266,26 +304,88 @@ public static partial class SportService
         return reruns.Count == 0 ? events : events.Where(e => !reruns.Contains(e)).ToList();
     }
 
+    // Same matchup on several channels, studio shows included, within three hours is one match; the first of each group leads.
+    // Without a matchup, items with the same key are one.
+    internal static List<List<T>> GroupMatches<T>(IEnumerable<T> ordered, Func<T, List<string>> teams, Func<T, long> start, Func<T, string>? same = null)
+    {
+        var groups = new List<List<T>>();
+        var keyed = new List<(List<T> group, List<(long start, ProgramTitle.TeamKey a, ProgramTitle.TeamKey b)> members)>();
+        var byKey = new Dictionary<string, List<T>>(StringComparer.Ordinal);
+        foreach (var x in ordered)
+        {
+            var t = teams(x);
+            if (t.Count != 2)
+            {
+                if (same?.Invoke(x) is { } k)
+                {
+                    if (byKey.TryGetValue(k, out var g)) { g.Add(x); continue; }
+                    byKey[k] = g = [x];
+                    groups.Add(g);
+                }
+                else groups.Add([x]);
+                continue;
+            }
+            var a = ProgramTitle.TeamKey.From(t[0]);
+            var b = ProgramTitle.TeamKey.From(t[1]);
+            long at = start(x);
+            var match = keyed.FirstOrDefault(k => k.members.Any(m => Math.Abs(m.start - at) < 180 * 60_000 && SameMatch(m.a, m.b, a, b)));
+            if (match.group != null)
+            {
+                match.group.Add(x);
+                match.members.Add((at, a, b));
+                continue;
+            }
+            var group = new List<T> { x };
+            keyed.Add((group, [(at, a, b)]));
+            groups.Add(group);
+        }
+        return groups;
+    }
+
+    // A team plays one match at a time, so at the same hour one clear team and a name that shares a word are enough:
+    // "Slavia Praha - Arsenal" and "Slavia Prag - Arsenal".
+    private static bool SameMatch(ProgramTitle.TeamKey a1, ProgramTitle.TeamKey b1, ProgramTitle.TeamKey a2, ProgramTitle.TeamKey b2)
+    {
+        static bool Strong(ProgramTitle.TeamKey x, ProgramTitle.TeamKey y) => ProgramTitle.TeamSimilarity(x, y) >= 0.5;
+        static bool Loose(ProgramTitle.TeamKey x, ProgramTitle.TeamKey y) =>
+            x.Core.Any(w => y.Core.Any(v => w == v || (w.Length >= 4 && v.Length >= 4 && w[..4] == v[..4])));
+        return (Strong(a1, a2) && Loose(b1, b2)) || (Loose(a1, a2) && Strong(b1, b2))
+            || (Strong(a1, b2) && Loose(b1, a2)) || (Loose(a1, b2) && Strong(b1, a2));
+    }
+
+    // A slot that ends before kick-off is a preview, not the match.
+    internal static bool CoversKickoff(ProgramView p, long? kickoff) =>
+        kickoff is not long k || (p.Start <= k + 20 * 60_000 && p.End >= k + 30 * 60_000);
+
+    // The other channels of a group, best language first, without the chosen one.
+    internal static List<Broadcast>? OtherBroadcasts(IEnumerable<Broadcast> all, CatalogItem chosen)
+    {
+        var list = all.Where(b => b.Channel.Id != chosen.Id).DistinctBy(b => b.Channel.Id)
+            .OrderBy(b => Languages.Rank(b.Channel)).ThenBy(b => b.Program.Start).ToList();
+        return list.Count == 0 ? null : list;
+    }
+
     private static List<SportEvent> Merge(List<SportEvent> events)
     {
         events = DropReruns(events);
-        var kept = new List<(SportEvent e, ProgramTitle.TeamKey a, ProgramTitle.TeamKey b)>();
+        var ordered = events.OrderByDescending(e => e.Relevance).ThenBy(e => Languages.Rank(e.Channel))
+            .ThenByDescending(e => e.Info?.Image != null).ThenByDescending(e => e.Info?.HomeLogo != null);
         var result = new List<SportEvent>();
-        foreach (var e in events.OrderByDescending(e => e.Relevance).ThenByDescending(e => IsHome(e.Channel))
-                     .ThenByDescending(e => e.Info?.Image != null).ThenByDescending(e => e.Info?.HomeLogo != null))
+        foreach (var group in GroupMatches(ordered, e => e.Teams, e => e.Program.Start))
         {
-            if (e.Teams.Count != 2)
-            {
-                result.Add(e);
-                continue;
-            }
-            var a = ProgramTitle.TeamKey.From(e.Teams[0]);
-            var b = ProgramTitle.TeamKey.From(e.Teams[1]);
-            // Same matchup on several channels, studio shows included, within three hours is one match.
-            bool duplicate = kept.Any(k => Math.Abs(k.e.Program.Start - e.Program.Start) < 180 * 60_000 && SamePair(k.a, k.b, a, b));
-            if (duplicate) continue;
-            kept.Add((e, a, b));
-            result.Add(e);
+            // Match details come from the best listing, the channel from the best language.
+            var lead = group[0];
+            long? kickoff = group.Select(e => e.Info?.Kickoff).FirstOrDefault(k => k != null);
+            var pick = group.OrderByDescending(e => CoversKickoff(e.Program, kickoff)).ThenBy(e => e.Program.Replay)
+                .ThenBy(e => Languages.Rank(e.Channel)).First();
+            var all = group.SelectMany(e => (IEnumerable<Broadcast>)[Languages.Of(e.Channel, e.Program), .. e.Alternatives ?? []]).ToList();
+            lead.Channel = pick.Channel;
+            lead.Program = pick.Program;
+            lead.Live = pick.Live;
+            lead.Info ??= group.Select(e => e.Info).FirstOrDefault(i => i != null);
+            lead.Language = Languages.Of(pick.Channel);
+            lead.Alternatives = OtherBroadcasts(all, pick.Channel);
+            result.Add(lead);
         }
         return result;
     }

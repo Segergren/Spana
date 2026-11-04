@@ -54,6 +54,12 @@ export function SportRow({ title, events, onSeeAll }: { title: string; events: S
           reason={e.reason}
           info={e.info}
           highlight={e.mine}
+          language={e.language}
+          alternatives={e.alternatives}
+          onPickChannel={(c) => {
+            void playLive(c, events.map((x) => x.channel));
+            go({ name: 'player' });
+          }}
           onClick={() => {
             void playLive(e.channel, events.map((x) => x.channel));
             go({ name: 'player' });
@@ -138,6 +144,12 @@ export default function Home() {
               teams={x.teams}
               reason={x.reason}
               info={x.info}
+              language={x.language}
+              alternatives={x.alternatives}
+              onPickChannel={(c) => {
+                void playLive(c, worthWatching.map((y) => y.channel));
+                go({ name: 'player' });
+              }}
               onClick={() => {
                 void playLive(x.channel, worthWatching.map((y) => y.channel));
                 go({ name: 'player' });
@@ -158,6 +170,12 @@ export default function Home() {
               teams={x.teams}
               reason={x.reason}
               info={x.info}
+              language={x.language}
+              alternatives={x.alternatives}
+              onPickChannel={(c) => {
+                void playLive(c, forYou.map((y) => y.channel));
+                go({ name: 'player' });
+              }}
               onClick={() => {
                 void playLive(x.channel, forYou.map((y) => y.channel));
                 go({ name: 'player' });

@@ -267,7 +267,7 @@ internal static class Routes
             settings = new
             {
                 s.UserAgent, s.NetworkCachingMs, s.Volume, s.HardwareDecoding, s.AudioDelayMs, s.LiveCacheHours, s.VodCacheHours,
-                s.HideAdult, s.HiddenChannels, s.HideNoGuide, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel,
+                s.HideAdult, s.HiddenChannels, s.HideNoGuide, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.ContentLanguage, contentLanguageAuto = Languages.Auto, s.UpdateChannel,
                 ai = new
                 {
                     s.Ai.Provider,
@@ -430,6 +430,9 @@ internal static class Routes
                     break;
                 case "preferredAudioLanguage": s.PreferredAudioLanguage = v.GetString() ?? ""; break;
                 case "preferredSubtitleLanguage": s.PreferredSubtitleLanguage = v.GetString() ?? ""; break;
+                case "contentLanguage":
+                    s.ContentLanguage = v.GetString()?.Trim().ToLowerInvariant() is { Length: 2 } lang ? lang : "";
+                    break;
                 case "aiProvider":
                     {
                         string p = v.GetString() ?? "";

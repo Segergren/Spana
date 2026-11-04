@@ -112,7 +112,14 @@ public static class MatchDataService
     private static readonly ConcurrentQueue<string> BadgeQueue = new();
     private static readonly ConcurrentDictionary<string, byte> BadgeQueued = new();
     private static readonly ConcurrentDictionary<string, DateTimeOffset> BadgeRetryAt = new();
-    private static readonly string BadgeFile = Path.Combine(Storage.CacheRoot, "team-badges.json");
+    // Teams the badge source had nothing for, with when it was asked; asked again after a while.
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> BadgeMisses = new();
+    // Badges by club name without suffixes, so "Arsenal" finds the one cached for "Arsenal FC".
+    private static readonly ConcurrentDictionary<string, string> BadgesByCore = new();
+    private static readonly TimeSpan BadgeMissFor = TimeSpan.FromDays(3);
+    private const string MissPrefix = "miss:";
+    // v2: badges are checked against the team's name; the old file could hold another club's badge.
+    private static readonly string BadgeFile = Path.Combine(Storage.CacheRoot, "team-badges-v2.json");
 
     private static readonly ConcurrentDictionary<string, TeamLeague> TeamLeagues = new();
     private static readonly ConcurrentDictionary<string, string> LeagueCountries = new();
@@ -564,6 +571,24 @@ public static class MatchDataService
     }
 
     // Schedule and title leagues are folded into the scores league id whenever they describe the same competition.
+    /// <summary>
+    /// For a slot that only names a league: true when that league's matches were over before it started and none
+    /// is played during it, false when one is, null when the scores source does not know the league.
+    /// </summary>
+    public static bool? LeagueReplay(string? league, long start, long end)
+    {
+        if (league == null || !Enabled) return null;
+        const long matchLength = 110 * 60_000;
+        bool earlier = false;
+        foreach (var m in _fotmob)
+        {
+            if (m.Kickoff is not long k || Canonical(m.League) != league) continue;
+            if (k < end && k + matchLength > start) return false;
+            if (k + matchLength <= start && start - k < 4 * 24 * 3_600_000L) earlier = true;
+        }
+        return earlier ? true : null;
+    }
+
     public static string? Canonical(string? league)
     {
         if (league == null) return null;
@@ -689,6 +714,8 @@ public static class MatchDataService
 
         var (sport, key) = Leagues.FromTitle(title);
         if (key == null) return default;
+        // "UEFA Champions League" alone still belongs to one sport.
+        sport ??= Leagues.Find(title)?.sport;
         string? resolved = ResolveByName(sport, key) ?? $"t:{Leagues.Slug(sport)}:{key}";
         return new MatchContext(resolved, NameOf(resolved) ?? key, CountryOf(resolved), sport, null, null);
     }
@@ -755,9 +782,32 @@ public static class MatchDataService
             info.AwayLogo = Badge(teamNames[1], teamSport);
         }
 
+        // Without a score source nothing says the final whistle went; a match is over once a normal game has been played.
+        if (data == null && info.Kickoff is long kick && Length(teamSport) is long length &&
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > kick + length)
+        {
+            info.Finished = true;
+            info.FinishedAt = kick + length;
+        }
+
         bool empty = info.Image == null && info.HomeLogo == null && info.AwayLogo == null && info.Status == null && info.Tournament == null;
         return empty ? null : info;
     }
+
+    // Kick-off to final whistle for a usual game, breaks included; sports without a set length have none.
+    private static long? Length(string? sport) => (sport switch
+    {
+        "Football" => 115,
+        "Ice hockey" => 150,
+        "Basketball" => 140,
+        "Handball" => 100,
+        "Floorball" => 120,
+        "Bandy" => 115,
+        "Rugby" => 100,
+        "American football" => 200,
+        "Baseball" => 190,
+        _ => (int?)null
+    }) is int minutes ? minutes * 60_000L : null;
 
     // Matches with a broadcaster image or live data are the ones that matter; bare guide entries rank lower.
     public static double Quality(MatchInfo? info)
@@ -788,9 +838,53 @@ public static class MatchDataService
     {
         string key = CatalogService.Normalize(team) + "|" + (sport ?? "");
         if (Badges.TryGetValue(key, out var url)) return url;
+        if (BadgeCore(key) is { } core && BadgesByCore.TryGetValue(core, out var same)) return same;
+        if (BadgeMisses.TryGetValue(key, out var missed) && DateTimeOffset.UtcNow - missed < BadgeMissFor) return null;
         if (BadgeRetryAt.TryGetValue(key, out var at) && DateTimeOffset.UtcNow < at) return null;
         if (BadgeQueued.TryAdd(key, 0)) BadgeQueue.Enqueue(key);
         return null;
+    }
+
+    private static readonly HashSet<string> SquadWords = new(StringComparer.Ordinal)
+    {
+        "b", "c", "ii", "iii", "u17", "u18", "u19", "u20", "u21", "u23", "women", "woman", "w", "ladies", "dam", "damer",
+        "reserves", "reserve", "youth", "academy", "juniors", "junior"
+    };
+
+    // The search finds "CS Arsenal Tunari" for "Arsenal FC" and "Slavia Praha C" for "Slavia Praha": the badge counts
+    // only when one of the team's names has the same words, allowing spellings like "Prag" and "Prague".
+    private static bool BadgeNamesMatch(string query, JsonElement team)
+    {
+        var want = ProgramTitle.TeamKey.From(query);
+        if (want.Core.Count == 0) return false;
+        var asked = CatalogService.Normalize(query).Split(' ').ToHashSet(StringComparer.Ordinal);
+        static bool Like(string a, string b) => a == b || (a.Length >= 4 && b.Length >= 4 && a[..4] == b[..4]);
+        var names = new List<string?> { team.Str("strTeam"), team.Str("strTeamShort") };
+        names.AddRange((team.Str("strTeamAlternate") ?? "").Split(',', StringSplitOptions.TrimEntries));
+        foreach (var name in names)
+        {
+            if (string.IsNullOrEmpty(name)) continue;
+            if (CatalogService.Normalize(name).Split(' ').Any(w => SquadWords.Contains(w) && !asked.Contains(w))) continue;
+            var have = ProgramTitle.TeamKey.From(name);
+            if (have.Core.Count > 0 && want.Core.All(w => have.Core.Any(h => Like(w, h))) && have.Core.All(h => want.Core.Any(w => Like(w, h))))
+                return true;
+        }
+        return false;
+    }
+
+    private static void AddBadge(string key, string url)
+    {
+        Badges[key] = url;
+        BadgeMisses.TryRemove(key, out _);
+        if (BadgeCore(key) is { } core) BadgesByCore.TryAdd(core, url);
+    }
+
+    // "arsenal fc|Football" becomes "arsenal|Football".
+    private static string? BadgeCore(string key)
+    {
+        int bar = key.LastIndexOf('|');
+        var team = ProgramTitle.TeamKey.From(key[..bar]);
+        return team.Core.Count == 0 ? null : string.Join(' ', team.Core.Order(StringComparer.Ordinal)) + key[bar..];
     }
 
     private static async Task BadgeLoop()
@@ -808,7 +902,8 @@ public static class MatchDataService
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
                     using var doc = await GetJson($"{SpanaApi.Base}/teams?q=" + Uri.EscapeDataString(parts[0]), cts.Token);
                     string? wanted = SportsDbSport(parts[1]);
-                    var team = (doc.RootElement.Prop("teams") ?? default).Items().FirstOrDefault(t => t.Str("strSport") == wanted);
+                    var team = (doc.RootElement.Prop("teams") ?? default).Items()
+                        .FirstOrDefault(t => t.Str("strSport") == wanted && BadgeNamesMatch(parts[0], t));
                     if (team.ValueKind == JsonValueKind.Object) found = team.Str("strBadge") is { } badge ? SpanaApi.Image(badge) : null;
                     answered = true;
                 }
@@ -825,7 +920,9 @@ public static class MatchDataService
                     continue;
                 }
                 BadgeRetryAt.TryRemove(key, out _);
-                Badges[key] = found;
+                BadgeQueued.TryRemove(key, out _);
+                if (found != null) AddBadge(key, found);
+                else BadgeMisses[key] = DateTimeOffset.UtcNow;
                 if (++sinceSave >= 5 || BadgeQueue.IsEmpty)
                 {
                     sinceSave = 0;
@@ -846,9 +943,17 @@ public static class MatchDataService
     {
         try
         {
+            try { File.Delete(Path.Combine(Storage.CacheRoot, "team-badges.json")); } catch { }
             if (!File.Exists(BadgeFile)) return;
             var map = JsonSerializer.Deserialize<Dictionary<string, string?>>(File.ReadAllText(BadgeFile));
-            if (map != null) foreach (var (k, v) in map) Badges[k] = v;
+            if (map == null) return;
+            foreach (var (k, v) in map)
+            {
+                // Older caches kept a miss forever as null; those are asked again.
+                if (v == null) continue;
+                if (!v.StartsWith(MissPrefix, StringComparison.Ordinal)) AddBadge(k, v);
+                else if (long.TryParse(v[MissPrefix.Length..], out long sec)) BadgeMisses[k] = DateTimeOffset.FromUnixTimeSeconds(sec);
+            }
         }
         catch (Exception ex)
         {
@@ -860,7 +965,10 @@ public static class MatchDataService
     {
         try
         {
-            Storage.Save(BadgeFile, Badges.ToDictionary(k => k.Key, v => v.Value));
+            var map = Badges.ToDictionary(k => k.Key, v => v.Value);
+            foreach (var (k, at) in BadgeMisses)
+                if (DateTimeOffset.UtcNow - at < BadgeMissFor) map[k] = MissPrefix + at.ToUnixTimeSeconds();
+            Storage.Save(BadgeFile, map);
         }
         catch (Exception ex)
         {

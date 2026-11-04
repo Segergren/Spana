@@ -114,16 +114,28 @@ public static partial class Leagues
             (string key, string sport, string name)? best = null;
             int bestLength = 0;
             foreach (var (phrase, key, sport, name) in Known)
-                if (phrase.Length > bestLength && HasWord(text, phrase)) { best = (key, sport, name); bestLength = phrase.Length; }
+                if (phrase.Length > bestLength && HasWord(text, phrase, true)) { best = (key, sport, name); bestLength = phrase.Length; }
             if (best != null) return best;
         }
         return null;
     }
 
-    private static bool HasWord(string text, string word)
+    // Words that make a league name another competition: "AFC Champions League", "Canadian Premier League", "2. Bundesliga".
+    private static readonly HashSet<string> OtherCompetition = new(StringComparer.Ordinal)
+    {
+        "afc", "caf", "concacaf", "ofc", "asian", "african", "global", "youth", "women", "womens", "ehf", "cev", "fiba",
+        "basketball", "volleyball", "handball", "canadian", "russian", "ukrainian", "egyptian", "welsh", "irish", "indian",
+        "israeli", "maltese", "kenyan", "ghana", "nigerian", "jamaican", "bangladesh", "lebanese", "armenian", "2", "3"
+    };
+
+    private static bool HasWord(string text, string word, bool sameCompetition = false)
     {
         for (int i = text.IndexOf(word, StringComparison.Ordinal); i >= 0; i = text.IndexOf(word, i + 1, StringComparison.Ordinal))
-            if ((i == 0 || text[i - 1] == ' ') && (i + word.Length == text.Length || text[i + word.Length] == ' ')) return true;
+        {
+            if ((i != 0 && text[i - 1] != ' ') || (i + word.Length != text.Length && text[i + word.Length] != ' ')) continue;
+            if (sameCompetition && i > 1 && OtherCompetition.Contains(text[(text.LastIndexOf(' ', i - 2) + 1)..(i - 1)])) continue;
+            return true;
+        }
         return false;
     }
 
@@ -176,6 +188,17 @@ public static partial class Leagues
 
     public static bool IsTopTier(string? key) => key != null && TopTier.Contains(key);
 
+    // Big league names other countries use too: Brazil's "Série A", Algeria's "Ligue 1", Russia's "Premier League".
+    private static readonly Dictionary<string, string> TopTierHome = new(StringComparer.Ordinal)
+    {
+        ["premier league"] = "ENG", ["la liga"] = "ESP", ["serie a"] = "ITA", ["bundesliga"] = "GER", ["ligue 1"] = "FRA"
+    };
+
+    /// <summary>Top tier, unless the league is known to be another country's namesake.</summary>
+    public static bool IsTopTier(string? key, string? country) =>
+        IsTopTier(key) && (country is null or "" or "INT" || !TopTierHome.TryGetValue(key!, out var home) ||
+                           string.Equals(country, home, StringComparison.OrdinalIgnoreCase));
+
     // Each country's top divisions, keyed by league name, with the country they belong to.
     private static readonly Dictionary<string, string> NationalTop = new(StringComparer.Ordinal)
     {
@@ -209,7 +232,8 @@ public static partial class Leagues
     public static int Prominence(string? leagueName, string? country, bool covered)
     {
         string? key = Key(leagueName);
-        if (IsTopTier(key)) return 3;
+        if (IsTopTier(key, country)) return 3;
+        if (IsTopTier(key)) return string.Equals(country, HomeCountry, StringComparison.OrdinalIgnoreCase) ? 3 : 2;
         if (key != null && NationalTop.TryGetValue(key, out var home))
             return string.Equals(home, HomeCountry, StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(country, HomeCountry, StringComparison.OrdinalIgnoreCase) && home == country ? 3 : 2;
@@ -221,6 +245,18 @@ public static partial class Leagues
         league.Contains("friendl") || league.Contains("vanskap") || league.Contains("qualif") || league == "euro";
 
     public static string Slug(string? sport) => string.IsNullOrEmpty(sport) ? "x" : CatalogService.Normalize(sport).Replace(' ', '-');
+
+    // "Fotboll: UEFA Champions League" or "Live: NHL": the title is the league and nothing else, no show or match.
+    public static bool IsLeagueOnly(string title)
+    {
+        string t = ProgramTitle.WithoutLive(title);
+        int pipe = t.IndexOf(" | ", StringComparison.Ordinal);
+        if (pipe > 0) t = t[..pipe];
+        int colon = t.IndexOf(": ", StringComparison.Ordinal);
+        if (colon is > 0 and <= 24 && SportWords.Contains(CatalogService.Normalize(t[..colon]))) t = t[(colon + 2)..];
+        string? key = Key(t);
+        return key != null && Find(t)?.key == key;
+    }
 
     // "Ishockey: SHL" or "Fotboll: Allsvenskan" carries sport and league in the title itself.
     public static (string? sport, string? key) FromTitle(string title)

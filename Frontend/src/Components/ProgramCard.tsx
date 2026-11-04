@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { clock, img, type CatalogItem, type MatchInfo, type ProgramView } from '../lib/api';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, History } from 'lucide-react';
+import { clock, img, languageName, type Broadcast, type CatalogItem, type MatchInfo, type ProgramView } from '../lib/api';
 import { Art, SafeImg, logoOf } from './Cards';
 import { sportStyle } from '../lib/sports';
+import { usePlayingChannel } from '../Context/AppContext';
 
 function startsIn(start: number) {
   const mins = Math.round((start - Date.now()) / 60000);
@@ -59,6 +62,113 @@ function Logo({ src, size = 'h-5 w-5' }: { src?: string; size?: string }) {
   return <SafeImg src={url} className={`${size} shrink-0 object-contain`} />;
 }
 
+function ChannelLogo({ channel }: { channel: CatalogItem }) {
+  return (
+    <Art
+      src={logoOf(channel)}
+      altSrc={channel.icon}
+      width={CHANNEL_W}
+      fit="contain"
+      className="h-full w-full"
+      frame={(img) => <span className="flex h-5 w-7 shrink-0 items-center justify-center">{img}</span>}
+    />
+  );
+}
+
+const CHIP = 'flex max-w-full items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 has-[img]:pl-1';
+
+/** The channel the card plays on; with other channels showing the same match it opens a list to switch. */
+function ChannelChip({
+  channel,
+  alternatives,
+  onPick,
+}: {
+  channel: CatalogItem;
+  alternatives?: Broadcast[];
+  onPick?: (channel: CatalogItem) => void;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number }>();
+
+  useEffect(() => {
+    if (!at) return;
+    const close = () => setAt(undefined);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [at]);
+
+  if (!alternatives?.length || !onPick)
+    return (
+      <div className={CHIP}>
+        <ChannelLogo channel={channel} />
+        <span className="truncate text-[11px] text-white/85">{channel.name}</span>
+      </div>
+    );
+
+  const toggle = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (at) return setAt(undefined);
+    const r = trigger.current!.getBoundingClientRect();
+    setAt({ left: Math.min(r.left, window.innerWidth - 300), top: Math.min(r.bottom + 6, window.innerHeight - 340) });
+  };
+
+  const rows: Broadcast[] = [{ channel, program: { title: '', start: 0, end: 0 } }, ...alternatives];
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        onClick={toggle}
+        onPointerDown={(e) => e.stopPropagation()}
+        className={`${CHIP} transition hover:bg-black/90 ${at ? 'ring-1 ring-white/40' : ''}`}
+      >
+        <ChannelLogo channel={channel} />
+        <span className="truncate text-[11px] text-white/85">{channel.name}</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-white/50">+{alternatives.length}</span>
+        <ChevronDown size={12} className={`shrink-0 text-white/70 transition ${at ? 'rotate-180' : ''}`} />
+      </button>
+      {at &&
+        createPortal(
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            className="panel fixed z-50 max-h-80 w-72 overflow-y-auto rounded-box p-1.5 shadow-xl"
+            style={{ left: at.left, top: at.top }}
+          >
+            {rows.map((b, i) => (
+              <button
+                key={b.channel.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAt(undefined);
+                  onPick(b.channel);
+                }}
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-white/10 ${i === 0 ? 'bg-white/[0.06] text-white' : 'text-white/80'}`}
+              >
+                <ChannelLogo channel={b.channel} />
+                <span className="min-w-0 flex-1 truncate">{b.channel.name}</span>
+                {i === 0 ? (
+                  <Check size={14} className="shrink-0 text-primary" />
+                ) : (
+                  <span className="shrink-0 text-xs text-white/45">
+                    {[languageName(b.language), b.program.replay ? 'Replay' : undefined, b.program.start ? clock(b.program.start) : undefined].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export default function ProgramCard({
   program,
   channel,
@@ -69,6 +179,9 @@ export default function ProgramCard({
   info,
   highlight,
   playing,
+  language,
+  alternatives,
+  onPickChannel,
   onClick,
 }: {
   program: ProgramView;
@@ -80,8 +193,21 @@ export default function ProgramCard({
   info?: MatchInfo;
   highlight?: boolean;
   playing?: boolean;
+  language?: string;
+  alternatives?: Broadcast[];
+  /** Plays the match on one of the other channels. */
+  onPickChannel?: (channel: CatalogItem) => void;
   onClick: () => void;
 }) {
+  // Switched to another channel for this match: the card shows and plays that one.
+  const playingId = usePlayingChannel();
+  const playingAlt = playingId && playingId !== channel.id ? alternatives?.find((b) => b.channel.id === playingId) : undefined;
+  const shown = playingAlt?.channel ?? channel;
+  const others = playingAlt
+    ? [{ channel, program, language }, ...(alternatives ?? []).filter((b) => b !== playingAlt)]
+    : alternatives;
+  const isPlaying = playing || (!!playingId && playingId === shown.id);
+  const open = () => (playingAlt && onPickChannel ? onPickChannel(shown) : onClick());
   const now = Date.now();
   const kickoff = info?.kickoff ?? program.start;
   const sportLook = sportStyle(tag);
@@ -99,7 +225,11 @@ export default function ProgramCard({
   // A dead image link falls back to the logos or the sport card instead of an empty frame.
   const image = wanted && wanted !== broken ? wanted : undefined;
 
-  const badge = info?.live ? (
+  const badge = program.replay ? (
+    <span className="flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold text-white/85">
+      <History size={12} /> Replay{program.start > now ? ` · ${clock(program.start)}` : ''}
+    </span>
+  ) : info?.live ? (
     <span className="rounded-md bg-error px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white">{info.status ?? 'LIVE'}</span>
   ) : info?.finished ? (
     <span className="rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-bold text-white">{info.status ?? 'FT'}</span>
@@ -115,11 +245,19 @@ export default function ProgramCard({
   );
 
   return (
-    <button
-      onClick={onClick}
-      className={`group relative flex w-80 shrink-0 flex-col overflow-hidden rounded-2xl text-left transition ${
-        playing
-          ? 'bg-primary/20 ring-2 ring-primary'
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          open();
+        }
+      }}
+      className={`group relative cursor-pointer flex w-80 shrink-0 flex-col overflow-hidden rounded-2xl text-left transition ${
+        isPlaying
+          ? 'bg-base-200 ring-2 ring-primary'
           : highlight
             ? 'bg-base-200 ring-1 ring-accent/60 hover:bg-base-100'
             : 'bg-base-200 hover:bg-base-100'
@@ -141,7 +279,7 @@ export default function ProgramCard({
           </div>
         ) : (
           // No match image: a flat sport card with the tournament instead of a stretched channel logo.
-          <div className="relative flex h-full flex-col justify-start overflow-hidden p-4" style={{ background: sportLook.color }}>
+          <div className="relative flex h-full flex-col justify-end overflow-hidden p-4" style={{ background: sportLook.color }}>
             <SportIcon className="absolute -bottom-6 -right-4 h-36 w-36 text-white opacity-[0.09]" strokeWidth={1.5} />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-white/60">{tag ?? 'Sport'}</span>
             <span className="mt-1 line-clamp-2 max-w-[80%] text-lg font-bold leading-tight text-white">
@@ -150,16 +288,8 @@ export default function ProgramCard({
           </div>
         )}
         <div className="absolute right-2 top-2">{badge}</div>
-        <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 has-[img]:pl-1">
-          <Art
-            src={logoOf(channel)}
-            altSrc={channel.icon}
-            width={CHANNEL_W}
-            fit="contain"
-            className="h-full w-full"
-            frame={(img) => <span className="flex h-5 w-7 shrink-0 items-center justify-center">{img}</span>}
-          />
-          <span className="truncate text-[11px] text-white/85">{channel.name}</span>
+        <div className="absolute left-2 top-2 flex max-w-[58%]">
+          <ChannelChip channel={shown} alternatives={others} onPick={onPickChannel} />
         </div>
         {live && (
           <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
@@ -187,6 +317,6 @@ export default function ProgramCard({
         )}
         {reason && <div className="mt-2 truncate text-[11px] text-accent">{cleanReason(reason)}</div>}
       </div>
-    </button>
+    </div>
   );
 }

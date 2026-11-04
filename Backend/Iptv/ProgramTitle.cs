@@ -51,6 +51,10 @@ public sealed partial class ProgramTitle
     [GeneratedRegex(@"\b(19|20)\d\d\b")]
     private static partial Regex Year();
 
+    // "Porto-Napoli Etapa 4", "Inter - Milan, Giornata 10": the round number after the matchup.
+    [GeneratedRegex(@",?\s+(?:etapa|round|matchday|giornata|jornada|omg[aå]ng|spieltag|runda|kolo|journ[eé]e|speeldag|rodada|fecha|kierros|runde)\s*\d+$", RegexOptions.IgnoreCase)]
+    private static partial Regex RoundSuffix();
+
     public ProgramTitle(string title) : this(title, null) { }
 
     // Placeholders some guides put before a coming show: "Upcoming (X)", "Upcoming - X".
@@ -122,6 +126,7 @@ public sealed partial class ProgramTitle
 
         int paren = t.LastIndexOf(" (", StringComparison.Ordinal);
         if (paren > 0 && t.EndsWith(')')) t = t[..paren];
+        t = RoundSuffix().Replace(t, "");
         bool overtime = OvertimeSuffix().IsMatch(t);
         if (overtime) t = OvertimeSuffix().Replace(t, "").Trim();
 
@@ -152,15 +157,25 @@ public sealed partial class ProgramTitle
             else Category ??= CatalogService.Normalize(t[..label]);
         }
 
-        // "Liverpool-Arsenal" without spaces: only split when both sides are teams we already know,
-        // so names like "Saint-Etienne" stay whole.
+        // "Liga Mistrzów UEFA - mecz: FC Porto - SSC Napoli": the matchup follows the last label.
+        int last = Teams.Count == 0 ? t.LastIndexOf(": ", StringComparison.Ordinal) : -1;
+        if (last > 0)
+        {
+            Split(t[(last + 2)..], Separators, false, false);
+            if (Teams.Count < 2) { Teams.Clear(); TeamNames.Clear(); }
+            else Category ??= CatalogService.Normalize(t[..last]);
+        }
+
+        // "Liverpool-Arsenal" without spaces: only split when both sides are teams we already know, or one is
+        // after a competition ("Champions League: Slavia Praga-Arsenal"), so names like "Saint-Etienne" stay whole.
         if (Teams.Count == 0 && t.Count(c => c == '-') == 1)
         {
             var parts = t.Split('-', StringSplitOptions.TrimEntries);
             if (parts.All(p => p.Length >= 3 && p.Split(' ').Length <= 4))
             {
                 var keys = parts.Select(p => TeamKey.From(StripEvent(p))).ToList();
-                if (keys.All(k => k.Core.Count > 0 && MatchDataService.LeagueOf(k) != null))
+                bool known(TeamKey k) => MatchDataService.LeagueOf(k) != null;
+                if (keys.All(k => k.Core.Count > 0) && (keys.All(known) || (prefix != null && keys.Any(known))))
                 {
                     Teams.AddRange(keys);
                     TeamNames.AddRange(parts.Select(StripEvent));

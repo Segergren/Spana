@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { api, type AppSettings, type SettingsPatch } from '../lib/api';
+import { api, languageName, type AppSettings, type SettingsPatch } from '../lib/api';
 import { useBootstrap } from '../Context/AppContext';
 import AddAccount from '../Components/AddAccount';
 import HiddenChannels from '../Components/HiddenChannels';
@@ -18,6 +18,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     </section>
   );
 }
+
+const COMMENTARY_LANGUAGES = [
+  'en', 'sv', 'no', 'da', 'fi', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ro', 'hu', 'cs', 'hr', 'sr', 'el', 'tr', 'ar', 'ru',
+];
 
 function bytes(n: number) {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
@@ -42,7 +46,7 @@ export default function Settings() {
     setDraft({ ...draft, ...patch });
     qc.setQueryData(['bootstrap'], await api.updateSettings(patch));
     if ('aiProvider' in patch || 'aiModel' in patch || 'aiReasoning' in patch || 'showVod' in patch) qc.invalidateQueries({ queryKey: ['aiPicks'] });
-    if ('hideAdult' in patch || 'hiddenChannels' in patch || 'hideNoGuide' in patch) {
+    if ('hideAdult' in patch || 'hiddenChannels' in patch || 'hideNoGuide' in patch || 'contentLanguage' in patch) {
       for (const key of ['catalog', 'sport', 'suggestions', 'search', 'aiPicks']) qc.invalidateQueries({ queryKey: [key] });
     }
   };
@@ -212,6 +216,20 @@ export default function Settings() {
               checked={draft.showVod}
               onChange={(e) => save({ showVod: e.target.checked })}
             />
+          </Field>
+          <Field label="Commentary language" hint="Which channel a match plays on when several show it. English comes next">
+            <select
+              className="select select-sm w-40 rounded-full"
+              value={draft.contentLanguage ?? ''}
+              onChange={(e) => save({ contentLanguage: e.target.value })}
+            >
+              <option value="">Automatic ({languageName(draft.contentLanguageAuto) ?? draft.contentLanguageAuto})</option>
+              {COMMENTARY_LANGUAGES.map((code) => (
+                <option key={code} value={code}>
+                  {languageName(code)}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Match data" hint="Images, live scores and team logos from public sports services, fetched through spana.tv">
             <input

@@ -49,6 +49,8 @@ public sealed class Settings
     public bool MatchData { get; set; } = true;
     public string PreferredAudioLanguage { get; set; } = "";
     public string PreferredSubtitleLanguage { get; set; } = "";
+    // Language code for which channel shows a match ("sv"); empty follows the region.
+    public string ContentLanguage { get; set; } = "";
     // "stable" or "beta"
     public string UpdateChannel { get; set; } = "stable";
     public WindowState? Window { get; set; }

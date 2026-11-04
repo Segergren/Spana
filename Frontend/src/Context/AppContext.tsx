@@ -61,6 +61,8 @@ const initialCast: CastState = { devices: [], status: 'idle', scanning: false };
 
 const NavContext = createContext<Nav>(null!);
 const PlayerContext = createContext<PlayerState>(initialPlayer);
+// Only the live channel id, so cards do not re-render on every player tick.
+const PlayingChannelContext = createContext<string | undefined>(undefined);
 const CastContext = createContext<CastState>(initialCast);
 const UpdateContext = createContext<UpdateState>({ current: '', channel: 'stable' });
 const FullscreenContext = createContext<{ fullscreen: boolean; setFullscreen: (v: boolean) => void }>(
@@ -171,13 +173,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [stack, direction, go, back],
   );
 
+  const playingChannel =
+    playerState.item?.kind === 'live' && playerState.status !== 'idle' && playerState.status !== 'ended'
+      ? playerState.item.id
+      : undefined;
+
   return (
     <NavContext.Provider value={nav}>
       <FullscreenContext.Provider value={{ fullscreen, setFullscreen }}>
         <PlayerContext.Provider value={playerState}>
-          <CastContext.Provider value={cast}>
-            <UpdateContext.Provider value={update}>{children}</UpdateContext.Provider>
-          </CastContext.Provider>
+          <PlayingChannelContext.Provider value={playingChannel}>
+            <CastContext.Provider value={cast}>
+              <UpdateContext.Provider value={update}>{children}</UpdateContext.Provider>
+            </CastContext.Provider>
+          </PlayingChannelContext.Provider>
         </PlayerContext.Provider>
       </FullscreenContext.Provider>
     </NavContext.Provider>
@@ -186,6 +195,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 export const useNav = () => useContext(NavContext);
 export const usePlayer = () => useContext(PlayerContext);
+/** The id of the live channel playing now, if any. */
+export const usePlayingChannel = () => useContext(PlayingChannelContext);
 export const useCast = () => useContext(CastContext);
 export const useUpdate = () => useContext(UpdateContext);
 export const useFullscreen = () => useContext(FullscreenContext);

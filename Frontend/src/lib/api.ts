@@ -158,6 +158,9 @@ export interface AppSettings {
   matchData: boolean;
   preferredAudioLanguage: string;
   preferredSubtitleLanguage: string;
+  /** Language code that picks the channel for a match; empty follows the region. */
+  contentLanguage: string;
+  contentLanguageAuto: string;
   updateChannel: 'stable' | 'beta';
   ai: AiSettings;
 }
@@ -289,6 +292,8 @@ export interface ProgramView {
   start: number;
   end: number;
   image?: string;
+  /** Shown before, not live. */
+  replay?: boolean;
 }
 
 export interface MatchInfo {
@@ -316,6 +321,26 @@ export interface Suggestion {
   teams: string[];
   match: 'team' | 'show' | 'league' | 'top' | 'country' | 'habit' | 'pick';
   info?: MatchInfo;
+  language?: string;
+  alternatives?: Broadcast[];
+}
+
+/** Another channel showing the same match. */
+export interface Broadcast {
+  channel: CatalogItem;
+  program: ProgramView;
+  language?: string;
+}
+
+const languageNames = new Intl.DisplayNames(['en'], { type: 'language' });
+
+export function languageName(code?: string) {
+  if (!code) return undefined;
+  try {
+    return languageNames.of(code);
+  } catch {
+    return code;
+  }
 }
 
 export interface SportEvent {
@@ -332,6 +357,8 @@ export interface SportEvent {
   prominence: number;
   reason?: string;
   info?: MatchInfo;
+  language?: string;
+  alternatives?: Broadcast[];
 }
 
 export interface ProgramResult {

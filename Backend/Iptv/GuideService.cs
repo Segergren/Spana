@@ -17,6 +17,8 @@ public sealed class Programme
     // XMLTV categories joined with ", " ("Sports, Ice Hockey").
     public string? Category { get; init; }
     public string? Image { get; init; }
+    // The guide's own mark: true for <previously-shown>, false for <premiere>, <live> or <new>, null without one.
+    public bool? Repeat { get; init; }
 
     private ProgramTitle? _parsed;
     public ProgramTitle Parsed => _parsed ??= new ProgramTitle(Title);
@@ -316,13 +318,13 @@ public static class GuideService
             long end = ParseTime(reader.GetAttribute("stop"));
             if (channel == null || start == 0 || end <= start || end < cutoff) continue;
 
-            var (title, desc, category, image) = ReadDetails(reader);
+            var (title, desc, category, image, repeat) = ReadDetails(reader);
             if (string.IsNullOrWhiteSpace(title)) continue;
 
             var p = new Programme
             {
                 EpgId = channel, Start = start, End = end, Title = Share(title.Trim())!, Description = Share(desc?.Trim()), Category = category,
-                Image = Share(PlaylistGuide.WebUrl(image))
+                Image = Share(PlaylistGuide.WebUrl(image)), Repeat = repeat
             };
             if (!guide.ByChannel.TryGetValue(channel, out var list)) guide.ByChannel[channel] = list = new();
             list.Add(p);
@@ -343,9 +345,10 @@ public static class GuideService
     }
 
     // Reads title, description, categories and image of a <programme>; the reader must be on that element.
-    internal static (string? title, string? desc, string? category, string? icon) ReadDetails(XmlReader reader)
+    internal static (string? title, string? desc, string? category, string? icon, bool? repeat) ReadDetails(XmlReader reader)
     {
         string? title = null, desc = null, category = null, icon = null;
+        bool? repeat = null;
         using var sub = reader.ReadSubtree();
         sub.Read();
         while (!sub.EOF)
@@ -364,9 +367,14 @@ public static class GuideService
                 icon ??= sub.GetAttribute("src");
                 sub.Read();
             }
-            else sub.Read();
+            else
+            {
+                if (sub.Name == "previously-shown") repeat ??= true;
+                else if (sub.Name is "premiere" or "live" or "new") repeat = false;
+                sub.Read();
+            }
         }
-        return (title, desc, category == null ? null : string.Intern(category), icon);
+        return (title, desc, category == null ? null : string.Intern(category), icon, repeat);
     }
 
     // XMLTV times look like "20261101134500 +0000"

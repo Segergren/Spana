@@ -9,6 +9,8 @@ public sealed class ProgramView
     public long Start { get; set; }
     public long End { get; set; }
     public string? Image { get; set; }
+    // Shown before: the guide says so, or it starts long after the match's kick-off.
+    public bool Replay { get; set; }
 }
 
 public sealed class Suggestion
@@ -21,6 +23,8 @@ public sealed class Suggestion
     public List<string> Teams { get; set; } = new();
     public string Match { get; set; } = "habit";
     public MatchInfo? Info { get; set; }
+    public string? Language { get; set; }
+    public List<Broadcast>? Alternatives { get; set; }
 }
 
 public readonly record struct Relevance(double Score, string Reason, string Kind);
@@ -263,7 +267,7 @@ public static class SuggestionService
             if (best * 3 > strongest)
             {
                 strongest = best * 3;
-                reason = $"You watched {match.Source}";
+                reason = $"You watch {match.Name}";
                 kind = "team";
             }
         }
@@ -300,7 +304,7 @@ public static class SuggestionService
             }
         }
 
-        if (Leagues.IsTopTier(leagueKey) && (sportKnown || (sport == null && profile.Sports.Count == 0)))
+        if (Leagues.IsTopTier(leagueKey, ctx.Country) && (sportKnown || (sport == null && profile.Sports.Count == 0)))
         {
             score += TopTierBase;
             if (strongest == 0 && reason.Length == 0) reason = $"Top league: {CleanLeague(ctx.LeagueName!)}";
@@ -351,7 +355,10 @@ public static class SuggestionService
             var info = parsed.Teams.Count == 2 ? MatchDataService.Lookup(parsed.Teams, parsed.TeamNames, p.Start, sport) : null;
             // Event channels keep long guide slots after the final whistle; a match over for 20 minutes is not a suggestion.
             if (info is { Finished: true } && now - (info.FinishedAt ?? 0) >= 20 * 60_000) continue;
+            if (info?.Kickoff is long kick && p.Start - kick > SportService.RerunAfter) continue;
             double score = rel.Score * MatchDataService.Quality(info);
+            bool replay = !parsed.Live && (p.Repeat ?? (parsed.Teams.Count < 2 && Leagues.IsLeagueOnly(title) && MatchDataService.LeagueReplay(ctx.League, p.Start, p.End) == true));
+            if (replay) score *= 0.35;
             if (profile.EpgChannels.TryGetValue(p.EpgId, out var chw)) score += chw * 0.1;
             bool live = p.Start <= now;
             double hoursAway = live ? 0 : (p.Start - now) / 3_600_000.0;
@@ -359,12 +366,17 @@ public static class SuggestionService
 
             var channel = PickChannel(channels, profile, excludeChannelId);
             if (channel == null) continue;
+            // Commentary you would not understand is only worth it for your own team.
+            if (rel.Kind != "team" && Languages.Rank(channel) >= 3) continue;
+            // Without a named match, a "top league" slot is a magazine, and a slot of many hours is the channel's filler.
+            bool matchup = parsed.Teams.Count == 2;
+            if (!matchup && (rel.Kind == "top" || p.End - p.Start > 4 * 3_600_000L)) continue;
 
-            string key = parsed.Show + "|" + p.Start / 60000;
+            string key = parsed.Show + "|" + p.Start / 60000 + "|" + p.EpgId;
             if (best.TryGetValue(key, out var existing) && existing.Score >= score) continue;
             best[key] = new Suggestion
             {
-                Program = new ProgramView { Title = title, Description = p.Description, Start = p.Start, End = p.End, Image = p.Image },
+                Program = new ProgramView { Title = title, Description = p.Description, Start = p.Start, End = p.End, Image = p.Image, Replay = replay },
                 Channel = channel,
                 Score = Math.Round(score, 3),
                 Reason = rel.Reason.Length > 0 ? rel.Reason : $"On {channel.Name}",
@@ -375,8 +387,30 @@ public static class SuggestionService
             };
         }
 
-        var top = best.Values.OrderByDescending(s => s.Score).ThenBy(s => s.Program.Start).Take(limit).ToList();
-        return top;
+        // The same league title over and over on one channel ("Fotboll: Allsvenskan") is a 24/7 channel's schedule, not a match.
+        var filler = best.Values.Where(s => s.Teams.Count < 2 && s.Match != "show")
+            .GroupBy(s => s.Channel.EpgId + "|" + new ProgramTitle(s.Program.Title).Show)
+            .Where(g => g.Count() >= 2).SelectMany(g => g).ToHashSet();
+        var ordered = best.Values.Where(s => !filler.Contains(s)).OrderByDescending(s => s.Score).ThenBy(s => Languages.Rank(s.Channel)).ThenBy(s => s.Program.Start);
+        return SportService.GroupMatches(ordered, s => s.Teams, s => s.Program.Start, s => new ProgramTitle(s.Program.Title).Show + "|" + s.Program.Start / 60000)
+            .Select(Combine).Take(limit).ToList();
+    }
+
+    // One card per match: the score and reason of the best listing, the channel in the best language.
+    private static Suggestion Combine(List<Suggestion> group)
+    {
+        var lead = group[0];
+        long? kickoff = group.Select(s => s.Info?.Kickoff).FirstOrDefault(k => k != null);
+        var pick = group.OrderByDescending(s => SportService.CoversKickoff(s.Program, kickoff)).ThenBy(s => s.Program.Replay)
+            .ThenBy(s => Languages.Rank(s.Channel)).First();
+        if (lead.Reason == $"On {lead.Channel.Name}") lead.Reason = $"On {pick.Channel.Name}";
+        lead.Channel = pick.Channel;
+        lead.Program = pick.Program;
+        lead.Live = pick.Live;
+        lead.Info ??= group.Select(s => s.Info).FirstOrDefault(i => i != null);
+        lead.Language = Languages.Of(pick.Channel);
+        lead.Alternatives = SportService.OtherBroadcasts(group.Select(s => Languages.Of(s.Channel, s.Program)), pick.Channel);
+        return lead;
     }
 
     internal static CatalogItem? PickChannel(List<CatalogItem> channels, Profile profile, string? exclude)
@@ -397,8 +431,8 @@ public static class SuggestionService
                 if (tags.Contains("50fps")) s -= 0.5;
             }
             if (c.Name.Contains("BETA", StringComparison.OrdinalIgnoreCase)) s -= 0.5;
-            // Your own country's channel, with commentary you understand.
-            if (!SportService.IsHome(c)) s -= 3;
+            // Commentary you understand: your language, then English.
+            s -= Languages.Rank(c) * 1.5;
             if (c.Id == exclude) s -= 100;
             if (s > pickScore) { pickScore = s; pick = c; }
         }
@@ -436,7 +470,7 @@ public static class SuggestionService
             .Take(limit)
             .Select(r => (object)new
             {
-                program = new ProgramView { Title = r.p.Title, Description = r.p.Description, Start = r.p.Start, End = r.p.End, Image = r.p.Image },
+                program = new ProgramView { Title = r.p.Title, Description = r.p.Description, Start = r.p.Start, End = r.p.End, Image = r.p.Image, Replay = r.p.Repeat == true },
                 channel = r.c,
                 live = r.p.Start <= now
             })
