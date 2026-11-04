@@ -159,6 +159,48 @@ export interface AppSettings {
   preferredAudioLanguage: string;
   preferredSubtitleLanguage: string;
   updateChannel: 'stable' | 'beta';
+  ai: AiSettings;
+}
+
+export type AiProvider = 'claude' | 'openai' | 'deepseek';
+
+export interface AiSettings {
+  provider: AiProvider | '';
+  /** Only the end of each key. */
+  keys: Partial<Record<AiProvider, string>>;
+  models: Partial<Record<AiProvider, string>>;
+  defaults: Record<AiProvider, string>;
+  reasoning: AiReasoning | '';
+  reasoningDefaults: Record<AiProvider, AiReasoning>;
+  reasoningLevels: Record<AiProvider, AiReasoning[]>;
+}
+
+export interface AiModel {
+  id: string;
+  name: string;
+  reasoning: AiReasoning[];
+}
+
+export type AiReasoning = 'off' | 'low' | 'medium' | 'high';
+
+export type SettingsPatch = Partial<AppSettings> & {
+  aiProvider?: AiProvider | '';
+  aiModel?: string;
+  aiReasoning?: AiReasoning;
+};
+
+export interface VodPick {
+  kind: 'movie' | 'series';
+  item: CatalogItem;
+  why: string;
+}
+
+export interface AiPicks {
+  status: 'off' | 'waiting' | 'loading' | 'ready' | 'error';
+  error?: string;
+  generatedAt?: string;
+  live?: Suggestion[];
+  vod?: VodPick[];
 }
 
 export interface HiddenPreview {
@@ -272,7 +314,7 @@ export interface Suggestion {
   reason: string;
   live: boolean;
   teams: string[];
-  match: 'team' | 'show' | 'league' | 'top' | 'country' | 'habit';
+  match: 'team' | 'show' | 'league' | 'top' | 'country' | 'habit' | 'pick';
   info?: MatchInfo;
 }
 
@@ -387,7 +429,7 @@ export const api = {
     request<Bootstrap>('POST', '/api/accounts', body),
   activateAccount: (id: string) => request<Bootstrap>('POST', `/api/accounts/${id}/activate`),
   removeAccount: (id: string) => request<Bootstrap>('DELETE', `/api/accounts/${id}`),
-  updateSettings: (patch: Partial<AppSettings>) => request<Bootstrap>('POST', '/api/settings', patch),
+  updateSettings: (patch: SettingsPatch) => request<Bootstrap>('POST', '/api/settings', patch),
   catalog: (kind: 'live' | 'movie' | 'series') => request<Catalog>('GET', `/api/catalog/${kind}`),
   refresh: () => request('POST', '/api/refresh'),
   hiddenPreview: (patterns: string[]) =>
@@ -403,6 +445,11 @@ export const api = {
   clearWatchProfile: () => request('DELETE', '/api/watchprofile'),
   interests: () => request<InterestList>('GET', '/api/interests'),
   forgetInterest: (keys: string[]) => request<InterestList>('POST', '/api/interests/forget', { keys }),
+  aiPicks: () => request<AiPicks>('GET', '/api/ai/picks'),
+  refreshAiPicks: () => request<AiPicks>('POST', '/api/ai/picks'),
+  aiModels: (provider: AiProvider) =>
+    request<{ models: AiModel[]; error?: string }>('GET', `/api/ai/models?provider=${provider}`),
+  saveAiKey: (provider: AiProvider, key: string) => request<Bootstrap>('POST', '/api/ai/key', { provider, key }),
   library: () => request<Library>('GET', '/api/library'),
   toggleFavorite: (entry: LibraryEntry) =>
     request<{ favorite: boolean }>('POST', '/api/favorite', entry),

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Spana.Backend.Ai;
 using Spana.Backend.App;
 using Spana.Backend.Cast;
 using Spana.Backend.Core;
@@ -31,6 +32,12 @@ internal static class Routes
     private sealed class ForgetBody
     {
         public List<string> Keys { get; set; } = new();
+    }
+
+    private sealed class AiKeyBody
+    {
+        public string Provider { get; set; } = "";
+        public string Key { get; set; } = "";
     }
 
     private sealed class CastBody
@@ -199,6 +206,27 @@ internal static class Routes
                 await ApiServer.WriteJson(res, new { ok = true });
                 return;
 
+            case "ai" when method == "GET" && parts.ElementAtOrDefault(1) == "picks":
+                await ApiServer.WriteJson(res, AiPicks.Get(RequireAccount()));
+                return;
+
+            case "ai" when method == "POST" && parts.ElementAtOrDefault(1) == "picks":
+                {
+                    var account = RequireAccount();
+                    AiPicks.Refresh(account);
+                    await ApiServer.WriteJson(res, AiPicks.Get(account));
+                }
+                return;
+
+            case "ai" when method == "GET" && parts.ElementAtOrDefault(1) == "models":
+                await ApiServer.WriteJson(res, await AiModelList(req.QueryString["provider"] ?? SettingsService.Current.Ai.Provider));
+                return;
+
+            case "ai" when method == "POST" && parts.ElementAtOrDefault(1) == "key":
+                await SaveAiKey(await ApiServer.ReadJson<AiKeyBody>(req));
+                await ApiServer.WriteJson(res, Bootstrap());
+                return;
+
             case "cast" when method == "GET":
                 CastService.Scan();
                 await ApiServer.WriteJson(res, CastService.GetState());
@@ -239,10 +267,63 @@ internal static class Routes
             settings = new
             {
                 s.UserAgent, s.NetworkCachingMs, s.Volume, s.HardwareDecoding, s.AudioDelayMs, s.LiveCacheHours, s.VodCacheHours,
-                s.HideAdult, s.HiddenChannels, s.HideNoGuide, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel
+                s.HideAdult, s.HiddenChannels, s.HideNoGuide, s.ShowVod, s.MatchData, s.PreferredAudioLanguage, s.PreferredSubtitleLanguage, s.UpdateChannel,
+                ai = new
+                {
+                    s.Ai.Provider,
+                    // Only the end of each key goes to the page.
+                    keys = s.Ai.Keys.ToDictionary(k => k.Key, k => k.Value.Length > 8 ? "..." + k.Value[^4..] : "saved"),
+                    s.Ai.Models,
+                    defaults = AiClient.Providers.ToDictionary(p => p, AiClient.DefaultModel),
+                    s.Ai.Reasoning,
+                    reasoningDefaults = AiClient.Providers.ToDictionary(p => p, AiClient.DefaultReasoning),
+                    reasoningLevels = AiClient.Providers.ToDictionary(p => p, AiClient.ReasoningLevels)
+                }
             },
             catalogs = active != null ? CatalogService.GetStatus(active) : []
         };
+    }
+
+    private static async Task<object> AiModelList(string provider)
+    {
+        if (SettingsService.Current.Ai.Keys.GetValueOrDefault(provider) is not { Length: > 0 } key) return new { models = Array.Empty<AiModel>() };
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            return new { models = await AiModels.List(provider, key, cts.Token) };
+        }
+        catch (Exception e)
+        {
+            return new { models = Array.Empty<AiModel>(), error = e is AiException ? e.Message : $"Could not reach {AiClient.NameOf(provider)}." };
+        }
+    }
+
+    private static async Task SaveAiKey(AiKeyBody body)
+    {
+        if (!AiClient.Providers.Contains(body.Provider)) throw new ApiError(400, "Unknown provider");
+        var ai = SettingsService.Current.Ai;
+        string key = body.Key.Trim();
+        if (key.Length == 0)
+        {
+            ai.Keys.Remove(body.Provider);
+            AiModels.Forget(body.Provider);
+            if (ai.Provider == body.Provider) ai.Provider = "";
+        }
+        else
+        {
+            if (key.Length < 20 || key.Any(char.IsWhiteSpace)) throw new ApiError(400, "That does not look like an API key.");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            try { await AiClient.Verify(body.Provider, key, cts.Token); }
+            catch (AiException e) { throw new ApiError(400, e.Message); }
+            catch (Exception) { throw new ApiError(400, $"Could not reach {AiClient.NameOf(body.Provider)}."); }
+            ai.Keys[body.Provider] = key;
+            // Settings asks for a key after the provider is picked, so a saved key means that provider is wanted.
+            ai.Provider = body.Provider;
+            using var lookup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            ai.Country ??= await AiClient.LookupCountry(lookup.Token);
+        }
+        SettingsService.Save();
+        AiPicks.SettingsChanged();
     }
 
     private static async Task<object> AddAccount(AddAccountBody body)
@@ -349,6 +430,29 @@ internal static class Routes
                     break;
                 case "preferredAudioLanguage": s.PreferredAudioLanguage = v.GetString() ?? ""; break;
                 case "preferredSubtitleLanguage": s.PreferredSubtitleLanguage = v.GetString() ?? ""; break;
+                case "aiProvider":
+                    {
+                        string p = v.GetString() ?? "";
+                        s.Ai.Provider = s.Ai.Keys.ContainsKey(p) ? p : "";
+                        AiPicks.SettingsChanged();
+                        break;
+                    }
+                case "aiModel":
+                    if (s.Ai.Provider.Length > 0)
+                    {
+                        string m = v.GetString()?.Trim() ?? "";
+                        if (m.Length == 0 || m == AiClient.DefaultModel(s.Ai.Provider)) s.Ai.Models.Remove(s.Ai.Provider);
+                        else s.Ai.Models[s.Ai.Provider] = m;
+                        AiPicks.SettingsChanged();
+                    }
+                    break;
+                case "aiReasoning":
+                    {
+                        string r = v.GetString() ?? "";
+                        s.Ai.Reasoning = r is "off" or "low" or "medium" or "high" ? r : "";
+                    }
+                    AiPicks.SettingsChanged();
+                    break;
                 case "updateChannel":
                     s.UpdateChannel = v.GetString() == "beta" ? "beta" : "stable";
                     UpdateService.ChannelChanged();

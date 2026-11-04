@@ -55,6 +55,18 @@ public sealed class Settings
     public string? ImageKey { get; set; }
     // Audio track position the viewer picked per channel or title, so it is used again next time.
     public Dictionary<string, int> AudioChoices { get; set; } = new();
+    public AiSettings Ai { get; set; } = new();
+}
+
+public sealed class AiSettings
+{
+    // "claude", "openai", "deepseek", or "" when off.
+    public string Provider { get; set; } = "";
+    public Dictionary<string, string> Keys { get; set; } = new();
+    public Dictionary<string, string> Models { get; set; } = new();
+    // Empty uses the provider's default.
+    public string Reasoning { get; set; } = "";
+    public string? Country { get; set; }
 }
 
 public sealed class WindowState

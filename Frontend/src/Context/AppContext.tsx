@@ -241,6 +241,21 @@ export function useSuggestions() {
   });
 }
 
+export function useAiPicks() {
+  const { data: boot } = useBootstrap();
+  const on = !!boot?.activeAccountId && !!boot.settings.ai?.provider;
+  const q = useQuery({
+    // Not keyed on the provider, so switching keeps the picks on screen.
+    queryKey: ['aiPicks', boot?.activeAccountId],
+    queryFn: api.aiPicks,
+    enabled: on,
+    refetchInterval: (q) => (q.state.data?.status === 'loading' ? 4000 : q.state.data?.status === 'waiting' ? 15_000 : 300_000),
+    staleTime: 60_000,
+  });
+  // Cached picks stay hidden while turned off.
+  return { data: on ? q.data : undefined, refetch: q.refetch };
+}
+
 export function useSport() {
   const { data: boot } = useBootstrap();
   return useQuery({

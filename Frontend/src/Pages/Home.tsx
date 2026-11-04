@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { Tv } from 'lucide-react';
-import { byPriority, isLiveOrJustEnded, isOver, type CatalogItem, type SportEvent } from '../lib/api';
+import { byPriority, isLiveOrJustEnded, isOver, normalize, type CatalogItem, type SportEvent, type Suggestion } from '../lib/api';
 import {
+  useAiPicks,
   useCatalog,
   useGuideNow,
   useLibrary,
@@ -19,6 +20,22 @@ import { playLive } from '../lib/stores';
 function recent(items: CatalogItem[] | undefined, n = 30) {
   if (!items) return [];
   return [...items].sort((a, b) => b.added - a.added).slice(0, n);
+}
+
+// Channels spell the same match differently ("SK Slavia Prag", "Slavia Prag"), so any shared detail at the same kick-off counts.
+const CLUB_AFFIXES = new Set(['fc', 'sk', 'ssc', 'afc', 'cf', 'ac', 'sc', 'if', 'ff', 'bk', 'fk', 'sv', 'as', 'rb']);
+const club = (team: string) =>
+  normalize(team)
+    .split(' ')
+    .filter((w) => !CLUB_AFFIXES.has(w))
+    .join(' ');
+
+function showKeys(s: Suggestion) {
+  const at = s.info?.kickoff ?? s.program.start;
+  const keys = [`${at}|${normalize(s.program.title)}`];
+  if (s.info?.homeLogo) keys.push(`${at}|${s.info.homeLogo}`);
+  if (s.teams.length) keys.push(`${at}|${s.teams.map(club).join('|')}`);
+  return keys;
 }
 
 export function SportRow({ title, events, onSeeAll }: { title: string; events: SportEvent[]; onSeeAll?: () => void }) {
@@ -57,13 +74,20 @@ export default function Home() {
   const { data: suggestions } = useSuggestions();
   const { data: sport } = useSport();
   const { data: guideNow } = useGuideNow();
+  const { data: picks } = useAiPicks();
+  const worthWatching = useMemo(() => {
+    const now = Date.now();
+    return (picks?.live ?? []).filter((s) => !isOver(s, now));
+  }, [picks]);
+  const picking = picks?.status === 'loading';
   const forYou = useMemo(() => {
     const rank = { team: 4, show: 3, league: 3, top: 2, country: 1, habit: 0 } as Record<string, number>;
     const now = Date.now();
-    return (suggestions ?? []).filter((s) => !isOver(s, now)).sort(
+    const picked = new Set(worthWatching.flatMap(showKeys));
+    return (suggestions ?? []).filter((s) => !isOver(s, now) && !showKeys(s).some((k) => picked.has(k))).sort(
       (a, b) => (rank[b.match] ?? 0) - (rank[a.match] ?? 0) || Number(b.live) - Number(a.live) || a.program.start - b.program.start,
     );
-  }, [suggestions]);
+  }, [suggestions, worthWatching]);
 
   const byId = useMemo(() => new Map(live.data?.items.map((i) => [i.id, i]) ?? []), [live.data]);
 
@@ -103,6 +127,26 @@ export default function Home() {
 
   return (
     <div className="flex flex-col gap-9 pb-16 pt-2">
+      {(!!worthWatching.length || picking) && (
+        <Row title="Worth watching today" busy={picking}>
+          {worthWatching.map((x) => (
+            <ProgramCard
+              key={x.channel.id + x.program.start}
+              program={x.program}
+              channel={x.channel}
+              live={x.live}
+              teams={x.teams}
+              reason={x.reason}
+              info={x.info}
+              onClick={() => {
+                void playLive(x.channel, worthWatching.map((y) => y.channel));
+                go({ name: 'player' });
+              }}
+            />
+          ))}
+        </Row>
+      )}
+
       {!!forYou.length && (
         <Row title="For you">
           {forYou.map((x) => (
@@ -154,6 +198,20 @@ export default function Home() {
               poster={h.icon}
               progress={progressOf(h)}
               onClick={() => resumeEntry(go, h)}
+            />
+          ))}
+        </Row>
+      )}
+      {showVod && !!picks?.vod?.length && (
+        <Row title="Picked for you">
+          {picks.vod.map((p) => (
+            <PosterCard
+              key={p.kind + p.item.id}
+              title={p.item.name}
+              poster={p.item.icon}
+              rating={p.item.rating}
+              note={p.why}
+              onClick={() => openItem(go, p.kind, p.item)}
             />
           ))}
         </Row>

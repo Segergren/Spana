@@ -1,11 +1,13 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { api, type AppSettings } from '../lib/api';
+import { api, type AppSettings, type SettingsPatch } from '../lib/api';
 import { useBootstrap } from '../Context/AppContext';
 import AddAccount from '../Components/AddAccount';
 import HiddenChannels from '../Components/HiddenChannels';
 import Interests from '../Components/Interests';
+import AiSettings from '../Components/AiSettings';
+import Field from '../Components/Field';
 import { enhanceEnabled, setEnhanceEnabled, subscribeEnhance } from '../lib/videoRenderer';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -14,18 +16,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="mb-5 text-lg font-semibold">{title}</h2>
       <div className="flex flex-col gap-5">{children}</div>
     </section>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-6">
-      <div>
-        <div className="text-sm font-medium">{label}</div>
-        {hint && <div className="text-xs text-muted">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
   );
 }
 
@@ -48,11 +38,12 @@ export default function Settings() {
 
   if (!boot || !draft) return null;
 
-  const save = async (patch: Partial<AppSettings>) => {
+  const save = async (patch: SettingsPatch) => {
     setDraft({ ...draft, ...patch });
     qc.setQueryData(['bootstrap'], await api.updateSettings(patch));
+    if ('aiProvider' in patch || 'aiModel' in patch || 'aiReasoning' in patch || 'showVod' in patch) qc.invalidateQueries({ queryKey: ['aiPicks'] });
     if ('hideAdult' in patch || 'hiddenChannels' in patch || 'hideNoGuide' in patch) {
-      for (const key of ['catalog', 'sport', 'suggestions', 'search']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['catalog', 'sport', 'suggestions', 'search', 'aiPicks']) qc.invalidateQueries({ queryKey: [key] });
     }
   };
 
@@ -266,6 +257,8 @@ export default function Settings() {
             </button>
           </Field>
         </Section>
+
+        <AiSettings settings={boot.settings} save={save} />
 
         <Interests />
 

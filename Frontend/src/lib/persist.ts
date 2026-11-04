@@ -3,7 +3,7 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query';
 // Keeps the last known data in IndexedDB so the app opens instantly and refreshes quietly behind it.
 const DB = 'spana';
 const STORE = 'queries';
-const PERSISTED = new Set(['bootstrap', 'catalog', 'sport', 'suggestions', 'guideNow', 'library', 'channelArt']);
+const PERSISTED = new Set(['bootstrap', 'catalog', 'sport', 'suggestions', 'guideNow', 'library', 'channelArt', 'aiPicks', 'aiModels']);
 
 interface Entry {
   hash: string;

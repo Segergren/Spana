@@ -1,5 +1,5 @@
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Heart, Play, Star, Tv } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Heart, Loader2, Play, Star, Tv } from 'lucide-react';
 import { img } from '../lib/api';
 
 export function logoOf(c?: { icon?: string; iconAlt?: string }) {
@@ -101,6 +101,7 @@ export function PosterCard({
   title,
   poster,
   subtitle,
+  note,
   rating,
   progress,
   favorite,
@@ -110,6 +111,7 @@ export function PosterCard({
   title: string;
   poster?: string;
   subtitle?: string;
+  note?: string;
   rating?: number;
   progress?: number;
   favorite?: boolean;
@@ -143,6 +145,7 @@ export function PosterCard({
       <div className="min-w-0 px-0.5">
         <div className="line-clamp-2 text-sm font-medium leading-snug text-white/90">{title}</div>
         {subtitle && <div className="truncate text-xs text-muted">{subtitle}</div>}
+        {note && <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-accent">{note}</div>}
       </div>
     </button>
   );
@@ -185,10 +188,12 @@ const ROW_BATCH = 8;
 export function Row({
   title,
   onSeeAll,
+  busy,
   children,
 }: {
   title: string;
   onSeeAll?: () => void;
+  busy?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -214,29 +219,38 @@ export function Row({
   return (
     <section className="group/row relative [contain-intrinsic-size:auto_320px] [content-visibility:auto]">
       <div className="mb-3 flex items-end justify-between px-8">
-        <h2 className="text-xl font-semibold text-white">{title}</h2>
+        <h2 className="flex items-center gap-2.5 text-xl font-semibold text-white">
+          {title}
+          {busy && <Loader2 size={18} className="animate-spin text-white/50 [animation-duration:600ms]" />}
+        </h2>
         {onSeeAll && (
           <button onClick={onSeeAll} className="btn btn-ghost btn-sm rounded-full text-muted">
             See all <ChevronRight size={16} />
           </button>
         )}
       </div>
-      <div ref={ref} className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-8 pb-2 pt-1">
-        {items.slice(0, shown)}
-        {shown < items.length && <div ref={end} className="w-px shrink-0" />}
-      </div>
-      <button
-        onClick={() => scroll(-1)}
-        className="absolute left-1 top-1/2 hidden h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 group-hover/row:flex group-hover/row:opacity-100"
-      >
-        <ChevronLeft />
-      </button>
-      <button
-        onClick={() => scroll(1)}
-        className="absolute right-1 top-1/2 hidden h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 group-hover/row:flex group-hover/row:opacity-100"
-      >
-        <ChevronRight />
-      </button>
+      {items.length > 0 && (
+        <div ref={ref} className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-8 pb-2 pt-1">
+          {items.slice(0, shown)}
+          {shown < items.length && <div ref={end} className="w-px shrink-0" />}
+        </div>
+      )}
+      {items.length > 0 && (
+        <>
+          <button
+            onClick={() => scroll(-1)}
+            className="absolute left-1 top-1/2 hidden h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 group-hover/row:flex group-hover/row:opacity-100"
+          >
+            <ChevronLeft />
+          </button>
+          <button
+            onClick={() => scroll(1)}
+            className="absolute right-1 top-1/2 hidden h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 group-hover/row:flex group-hover/row:opacity-100"
+          >
+            <ChevronRight />
+          </button>
+        </>
+      )}
     </section>
   );
 }
